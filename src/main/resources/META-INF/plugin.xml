@@ -1,0 +1,24 @@
+<idea-plugin>
+    <id>com.your.projectroot</id>
+    <name>Project Root</name>
+    <version>1.0-SNAPSHOT</version>
+    <vendor>Your Company</vendor>
+    <description>
+        An IntelliJ plugin to identify and run modified/dependent unit tests based on local changes.
+    </description>
+
+    <depends>com.intellij.modules.platform</depends>
+
+    <actions>
+        <action id="com.your.projectroot.RunChangeTrackingAction"
+                class="com.your.projectroot.RunChangeTrackingAction"
+                text="Run Change Tracking"
+                description="Track changes and run affected tests">
+            <add-to-group group-id="ToolsMenu" anchor="last"/>
+        </action>
+    </actions>
+    <extensions defaultExtensionNs="com.intellij">
+        <notificationGroup id="CustomNotifications" displayType="BALLOON" />
+    </extensions>
+</idea-plugin>
+
