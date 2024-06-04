@@ -105,12 +105,19 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.github.javaparser:javaparser-core:2.5.1'
+    implementation 'com.github.javaparser:javaparser-core:3.25.10'
+    implementation('org.eclipse.jgit:org.eclipse.jgit:5.13.0.202109080827-r') {
+        exclude group: 'org.slf4j', module: 'slf4j-api'
+        exclude group: 'org.slf4j', module: 'slf4j-log4j12'
+    }
+    implementation 'org.jetbrains:annotations:23.0.0'
+    compileOnly 'com.jetbrains:ideaIC:2023.2.6'
 }
 
 intellij {
     version.set '2023.2.6'
     type.set 'IC' // Target IDE Platform
+    plugins = ['java','JUnit']
 }
 
 tasks.withType(JavaCompile) {

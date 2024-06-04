@@ -8,6 +8,7 @@
     </description>
 
     <depends>com.intellij.modules.platform</depends>
+    <depends>com.intellij.modules.java</depends>
 
     <actions>
         <action id="com.your.projectroot.RunChangeTrackingAction"

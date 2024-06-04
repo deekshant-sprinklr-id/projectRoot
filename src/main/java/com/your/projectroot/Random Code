@@ -1,0 +1,224 @@
+//package com.your.projectroot;
+//
+//import com.github.javaparser.JavaParser;
+//import com.github.javaparser.ParseException;
+//import com.github.javaparser.ast.CompilationUnit;
+//import com.github.javaparser.ast.body.ClassOrInterfaceDeclaration;
+//import com.github.javaparser.ast.body.MethodDeclaration;
+//import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+//import com.intellij.openapi.components.Service;
+//import com.intellij.openapi.diagnostic.Logger;
+//import com.intellij.openapi.project.Project;
+//import com.intellij.openapi.vcs.changes.Change;
+//import com.intellij.openapi.vcs.changes.ChangeListManager;
+//import com.intellij.openapi.vcs.changes.LocalChangeList;
+//import com.intellij.openapi.vfs.VirtualFile;
+//import org.eclipse.jgit.api.Git;
+//import org.eclipse.jgit.lib.ObjectId;
+//import org.eclipse.jgit.lib.ObjectReader;
+//import org.eclipse.jgit.lib.Repository;
+//import org.eclipse.jgit.revwalk.RevCommit;
+//import org.eclipse.jgit.revwalk.RevWalk;
+//import org.eclipse.jgit.treewalk.TreeWalk;
+//import org.eclipse.jgit.treewalk.filter.PathFilter;
+//
+//import java.io.ByteArrayInputStream;
+//import java.io.ByteArrayOutputStream;
+//import java.io.File;
+//import java.io.IOException;
+//import java.nio.charset.StandardCharsets;
+//import java.util.ArrayList;
+//import java.util.HashMap;
+//import java.util.List;
+//import java.util.Map;
+//
+//@Service(Service.Level.PROJECT)
+//public final class ChangeTrackingService {
+//
+//    private static final Logger logger = Logger.getInstance(ChangeTrackingService.class);
+//    private final Project project;
+//    public static List<String> changes = new ArrayList<>();
+//    public ChangeTrackingService(Project project) {
+//        this.project = project;
+//    }
+//
+//    public void trackChangesAndRunTests() {
+//        System.out.println("Beginning: ");
+//        ChangeListManager changeListManager = ChangeListManager.getInstance(project);
+//
+//        // Get the list of local changes
+//        List<LocalChangeList> changes = changeListManager.getChangeLists();
+//
+//        // Iterate over changes and process them
+//        for (LocalChangeList changeList : changes) {
+//            for (Change change : changeList.getChanges()) {
+//                VirtualFile file = change.getVirtualFile();
+//
+//                if (file != null) {
+//                    // Process each changed file to determine affected unit tests
+//                    String sourceFilePath = file.getPath();
+//                    System.out.println("Changed Class: " + sourceFilePath);
+//                    // Get old and new content of the file
+//                    String oldContent = null;
+//                    try {
+//                        oldContent = getOldFileContent(file);
+//                    } catch (IOException e) {
+//                        e.printStackTrace();
+//                    }
+//                    String newContent = getNewFileContent(file);
+//                    if (oldContent != null && newContent != null) {
+//                        // Parse old and new contents
+//                        CompilationUnit oldCompilationUnit = null;
+//                        try {
+//                            oldCompilationUnit = JavaParser.parse(new ByteArrayInputStream(oldContent.getBytes()));
+//                        } catch (ParseException e) {
+//                            throw new RuntimeException(e);
+//                        }
+//                        CompilationUnit newCompilationUnit = null;
+//                        try {
+//                            newCompilationUnit = JavaParser.parse(new ByteArrayInputStream(newContent.getBytes()));
+//                        } catch (ParseException e) {
+//                            throw new RuntimeException(e);
+//                        }
+//
+//                        // Compare methods
+//                        compareMethods(oldCompilationUnit, newCompilationUnit);
+//                    }
+//                } else {
+//                    System.out.println("File is null");
+//                }
+//            }
+//        }
+//    }
+//
+//    private String getOldFileContent(VirtualFile file) throws IOException {
+//        String projectBasePath = project.getBasePath();
+//        File repoDir = new File(projectBasePath);
+//        String absoluteFilePath = file.getPath();
+//        String relativeFilePath = absoluteFilePath.substring(projectBasePath.length() + 1); // Convert to relative path
+////        System.out.println("Relative file path: " + relativeFilePath);
+//
+//        try (Git git = Git.open(repoDir)) {
+//            Repository repository = git.getRepository();
+//
+//            // Get the head commit
+//            ObjectId headId = repository.resolve("HEAD");
+//            if (headId == null) {
+//                throw new IOException("Couldn't resolve HEAD");
+//            }
+//
+//            // Walk the commit history to get the second most recent commit
+//            try (RevWalk revWalk = new RevWalk(repository)) {
+//                RevCommit headCommit = revWalk.parseCommit(headId);
+//                revWalk.markStart(headCommit);
+//
+//                RevCommit previousCommit = null;
+//                int count = 0;
+//                for (RevCommit commit : revWalk) {
+//                    count++;
+//                    if (count == 2) {
+//                        previousCommit = commit;
+//                        break;
+//                    }
+//                }
+//
+//                if (previousCommit == null) {
+//                    throw new IOException("No previous commit found");
+//                }
+//
+//                // Get the tree of the previous commit
+//                ObjectId treeId = previousCommit.getTree().getId();
+//
+//                // Find the specified file in the tree
+//                try (TreeWalk treeWalk = new TreeWalk(repository)) {
+//                    treeWalk.addTree(treeId);
+//                    treeWalk.setRecursive(true);
+//                    treeWalk.setFilter(PathFilter.create(relativeFilePath));
+//
+//                    while (treeWalk.next()) {
+//                        String path = treeWalk.getPathString();
+//                        if (path.equals(relativeFilePath)) {
+//                            // Get the file content
+//                            ObjectId objectId = treeWalk.getObjectId(0);
+//                            try (ObjectReader objectReader = repository.newObjectReader()) {
+//                                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
+//                                objectReader.open(objectId).copyTo(outputStream);
+//                                return outputStream.toString(StandardCharsets.UTF_8.name());
+//                            }
+//                        }
+//                    }
+//
+//                    throw new IOException("File not found in the previous commit: " + relativeFilePath);
+//                }
+//            }
+//        }
+//    }
+//
+//    private String getNewFileContent(VirtualFile file) {
+//        try {
+//            byte[] content = file.contentsToByteArray();
+//            return new String(content);
+//        } catch (IOException e) {
+//            throw new RuntimeException("Error reading new file content", e);
+//        }
+//    }
+//
+//    private void compareMethods(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit) {
+//        List<MethodDeclaration> oldMethods = new ArrayList<>();
+//        List<MethodDeclaration> newMethods = new ArrayList<>();
+//        oldCompilationUnit.accept(new MethodVisitor(), oldMethods);
+//        newCompilationUnit.accept(new MethodVisitor(), newMethods);
+//
+//        //Commented out code to print all the methods (New and Old)
+////        for (MethodDeclaration m1 : oldMethods) System.out.println(m1.getName());
+////        for (MethodDeclaration m2 : newMethods) System.out.println(m2.getName());
+//
+//        Map<String, MethodDeclaration> oldMethodsMap = new HashMap<>();
+//        for (MethodDeclaration method : oldMethods) {
+//            oldMethodsMap.put(method.getName(), method);
+//        }
+//
+//        for (MethodDeclaration newMethod : newMethods) {
+//            //String methodName = newMethod.getName();
+//            if (!oldMethodsMap.containsKey(newMethod.getName())) {
+//                System.out.println("Method added: " + newMethod.getName());
+//                changes.add(newMethod.getName());
+//            } else {
+//                MethodDeclaration oldMethod = oldMethodsMap.get(newMethod.getName());
+//                if (!oldMethod.getBody().equals(newMethod.getBody())) {
+//                    System.out.println("Method changed: " + newMethod.getName());
+//                    changes.add(newMethod.getName());
+//                }
+//                oldMethodsMap.remove(newMethod.getName());
+//            }
+//        }
+//
+//        for (String removedMethodName : oldMethodsMap.keySet()) {
+//            System.out.println("Method removed: " + removedMethodName);
+//            changes.add(removedMethodName);
+//        }
+//    }
+//
+//    private static class MethodVisitor extends VoidVisitorAdapter<List<MethodDeclaration>> {
+//        @Override
+//        public void visit(ClassOrInterfaceDeclaration classOrInterfaceDeclaration, List<MethodDeclaration> collector) {
+//            super.visit(classOrInterfaceDeclaration, collector);
+//            classOrInterfaceDeclaration.getMembers().forEach(member -> {
+//                if (member instanceof MethodDeclaration) {
+//                    MethodDeclaration method = (MethodDeclaration) member;
+//                    collector.add(method);
+//                }
+//            });
+//        }
+//    }
+//
+//    private void runAffectedTests(Project project, VirtualFile file) {
+//        // Placeholder method to run affected tests
+//        // Implement logic to determine and run affected tests
+//        logger.info("Running affected tests for: " + file.getPath());
+//
+//        // Example: Execute tests (this part needs implementation based on your testing framework)
+//        // For instance, if using JUnit:
+//        // TestExecutor.executeTests(file);
+//    }
+//}
