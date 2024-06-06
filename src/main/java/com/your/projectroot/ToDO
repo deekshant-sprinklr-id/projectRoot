@@ -1,0 +1,199 @@
+To ensure both accuracy and efficiency, we can adopt a streamlined approach that avoids redundant steps. Here’s an optimized strategy:
+
+1. **Directly Use JUnit 5 for Public Methods**: Utilize JUnit 5’s `LauncherDiscoveryRequest` to discover and run tests for public methods.
+2. **Reflection for Private Methods**: Use reflection to identify and link private methods to their corresponding test methods.
+3. **Efficient Method Signature Conversion**: Use a straightforward method to convert method signatures to `PsiMethod`.
+
+### Optimized Approach
+
+#### 1. JUnit 5 Test Discovery for Public Methods
+
+```java
+import org.junit.platform.engine.discovery.DiscoverySelectors;
+import org.junit.platform.launcher.*;
+import org.junit.platform.launcher.core.LauncherDiscoveryRequestBuilder;
+import org.junit.platform.launcher.core.LauncherFactory;
+
+private Set<PsiMethod> findTestsForPublicMethods(Set<PsiMethod> affectedMethods) {
+    Set<PsiMethod> associatedTests = new HashSet<>();
+    Launcher launcher = LauncherFactory.create();
+
+    for (PsiMethod method : affectedMethods) {
+        if (!method.hasModifierProperty(PsiModifier.PRIVATE)) {
+            String className = method.getContainingClass().getQualifiedName();
+            String methodName = method.getName();
+
+            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder.request()
+                    .selectors(DiscoverySelectors.selectMethod(className, methodName))
+                    .build();
+
+            launcher.execute(request, new TestExecutionListener() {
+                @Override
+                public void executionFinished(TestIdentifier testIdentifier, TestExecutionResult testExecutionResult) {
+                    if (testExecutionResult.getStatus() != TestExecutionResult.Status.SUCCESSFUL) {
+                        associatedTests.add(method);
+                    }
+                }
+            });
+        }
+    }
+    return associatedTests;
+}
+```
+
+#### 2. Reflection for Private Methods
+
+```java
+import java.lang.reflect.Method;
+import java.util.Set;
+import java.util.HashSet;
+import com.intellij.psi.*;
+
+private Set<PsiMethod> findTestsForPrivateMethods(Set<PsiMethod> affectedMethods) {
+    Set<PsiMethod> associatedTests = new HashSet<>();
+
+    for (PsiMethod method : affectedMethods) {
+        if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
+            PsiClass containingClass = method.getContainingClass();
+            if (containingClass != null) {
+                Method[] declaredMethods = containingClass.getQualifiedName().getClass().getDeclaredMethods();
+                for (Method declaredMethod : declaredMethods) {
+                    if (declaredMethod.getName().equals(method.getName())) {
+                        PsiMethod testMethod = findTestForPrivateMethod(declaredMethod);
+                        if (testMethod != null) {
+                            associatedTests.add(testMethod);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return associatedTests;
+}
+
+private PsiMethod findTestForPrivateMethod(Method method) {
+    Set<PsiMethod> potentialTests = findAllPotentialTestMethods();
+
+    for (PsiMethod testMethod : potentialTests) {
+        if (doesTestMethodUsePrivateMethod(testMethod, method)) {
+            return testMethod;
+        }
+    }
+    return null;
+}
+
+private boolean doesTestMethodUsePrivateMethod(PsiMethod testMethod, Method privateMethod) {
+    PsiCodeBlock body = testMethod.getBody();
+    if (body != null) {
+        for (PsiStatement statement : body.getStatements()) {
+            if (statement.getText().contains(privateMethod.getName())) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+private Set<PsiMethod> findAllPotentialTestMethods() {
+    Set<PsiMethod> testMethods = new HashSet<>();
+    GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+    PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
+
+    for (PsiClass psiClass : shortNamesCache.getAllClasses(scope)) {
+        for (PsiMethod method : psiClass.getMethods()) {
+            if (isTestMethod(method)) {
+                testMethods.add(method);
+            }
+        }
+    }
+    return testMethods;
+}
+
+private boolean isTestMethod(PsiMethod method) {
+    PsiAnnotation testAnnotation = method.getAnnotation("org.junit.jupiter.api.Test");
+    return testAnnotation != null;
+}
+```
+
+#### 3. Converting Method Signature to `PsiMethod`
+
+```java
+private PsiMethod convertSignatureToPsiMethod(String methodSignature) {
+    String className = extractClassName(methodSignature);
+    String methodName = extractMethodName(methodSignature);
+    String[] parameterTypes = extractParameterTypes(methodSignature);
+
+    PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
+    GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+    PsiClass[] classes = shortNamesCache.getClassesByName(className, scope);
+
+    for (PsiClass psiClass : classes) {
+        for (PsiMethod method : psiClass.findMethodsByName(methodName, false)) {
+            if (isMatchingParameters(method, parameterTypes)) {
+                return method;
+            }
+        }
+    }
+    return null;
+}
+
+private String extractClassName(String methodSignature) {
+    int lastDotIndex = methodSignature.lastIndexOf('.');
+    if (lastDotIndex != -1) {
+        return methodSignature.substring(0, lastDotIndex);
+    }
+    return "";
+}
+
+private boolean isMatchingParameters(PsiMethod method, String[] parameterTypes) {
+    PsiParameter[] parameters = method.getParameterList().getParameters();
+    if (parameters.length != parameterTypes.length) {
+        return false;
+    }
+    for (int i = 0; i < parameters.length; i++) {
+        if (!parameters[i].getType().getPresentableText().equals(parameterTypes[i])) {
+            return false;
+        }
+    }
+    return true;
+}
+```
+
+### Putting It All Together
+
+Integrate these methods into your `ChangeTrackingService` class:
+
+```java
+public void runAffectedTests() {
+    Set<String> affectedMethodsSignatures = affectedMethods.keySet();
+    Set<PsiMethod> affectedMethods = getAffectedMethods(affectedMethodsSignatures);
+
+    Set<PsiMethod> publicMethodTests = findTestsForPublicMethods(affectedMethods);
+    Set<PsiMethod> privateMethodTests = findTestsForPrivateMethods(affectedMethods);
+
+    Set<PsiMethod> allTests = new HashSet<>();
+    allTests.addAll(publicMethodTests);
+    allTests.addAll(privateMethodTests);
+
+    runTests(allTests);
+}
+
+private Set<PsiMethod> getAffectedMethods(Set<String> affectedMethodsSignatures) {
+    Set<PsiMethod> affectedMethods = new HashSet<>();
+    for (String methodSignature : affectedMethodsSignatures) {
+        PsiMethod psiMethod = convertSignatureToPsiMethod(methodSignature);
+        if (psiMethod != null) {
+            affectedMethods.add(psiMethod);
+        }
+    }
+    return affectedMethods;
+}
+```
+
+### Summary
+
+1. **JUnit 5 Test Discovery**: Efficiently discover and run tests for public methods using JUnit 5’s `LauncherDiscoveryRequest`.
+2. **Reflection for Private Methods**: Identify and run tests for private methods using reflection.
+3. **Optimized Conversion**: Convert method signatures to `PsiMethod` efficiently without redundant steps.
+
+This approach ensures a balance between performance and accuracy by directly leveraging JUnit 5’s capabilities and using reflection only where necessary.

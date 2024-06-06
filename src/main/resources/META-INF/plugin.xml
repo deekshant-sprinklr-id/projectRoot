@@ -13,7 +13,7 @@
     <actions>
         <action id="com.your.projectroot.RunChangeTrackingAction"
                 class="com.your.projectroot.RunChangeTrackingAction"
-                text="Run Change Tracking"
+                text="Run Tests Affected By Changes To Method"
                 description="Track changes and run affected tests">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>

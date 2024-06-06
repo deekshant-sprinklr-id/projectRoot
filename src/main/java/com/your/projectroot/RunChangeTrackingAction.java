@@ -22,13 +22,14 @@ public class RunChangeTrackingAction extends AnAction {
             if (input != null && !input.isEmpty()) {
                 try {
                     int depth = Integer.parseInt(input);
-                    ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
+                    final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
                     changeTrackingService.trackChangesAndRunTests(depth);
 
-                    NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
+                    //Implementing the Notification Feature
+                    final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
                     if (notificationGroup != null) {
-                        Notification notification = notificationGroup.createNotification(
-                                "Change Tracking",
+                        final Notification notification = notificationGroup.createNotification(
+                                "Change tracking",
                                 "Tracking changes and finding method usages",
                                 NotificationType.INFORMATION
                         );
