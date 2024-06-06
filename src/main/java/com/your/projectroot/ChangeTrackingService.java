@@ -12,7 +12,10 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -40,6 +43,8 @@ public final class ChangeTrackingService {
     private final Project project;
     public static final List<String> CHANGES = new ArrayList<>();
     private final Map<String, Integer> AFFECTED_METHODS = new HashMap<>();
+    private final Set<PsiMethod> PRIVATE_METHODS = new HashSet<>();
+    private final Set<PsiMethod> PUBLIC_METHOD_TESTS = new HashSet<>();
 
     public ChangeTrackingService(Project project) {
         this.project = project;
@@ -74,7 +79,7 @@ public final class ChangeTrackingService {
                         System.out.println("Cannot get OLD file content");
                         logger.info("Cannot get OLD file content");
                     }
-                    //todo:might cause problem with this initializing
+                    //might cause problem with this initializing
                     String newContent = "";
                     try {
                         newContent = getNewFileContent(file);
@@ -102,8 +107,12 @@ public final class ChangeTrackingService {
 
         findMethodUsages(maxDepth);
 
-        //Checking Changes
+        //Printing Changes
         System.out.println(AFFECTED_METHODS);
+        //Printing Private Methods
+        System.out.println(PRIVATE_METHODS);
+        //Printing Tests of Public Methods
+        System.out.println(PUBLIC_METHOD_TESTS);
     }
 
     private String getOldFileContent(VirtualFile file) throws IOException {
@@ -253,6 +262,14 @@ public final class ChangeTrackingService {
 
         for (PsiMethod method : psiMethods) {
             if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
+                //Adding Private Methods
+                if(method.hasModifierProperty(PsiModifier.PRIVATE)){
+                    PRIVATE_METHODS.add(method);
+                }
+                //Adding Public Method Test
+                if(CustomUtil.isTestMethod(method)){
+                    PUBLIC_METHOD_TESTS.add(method);
+                }
                 Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
                 for (PsiReference reference : references) {
                     PsiElement element = reference.getElement();
@@ -264,8 +281,9 @@ public final class ChangeTrackingService {
                             methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
                         }
                         if (containingMethod != null) {
-                            System.out.println("Method " + callingMethod + " is used in: " + CustomUtil.getMethodSignatureForPsiElement(containingMethod,methodClass));
-                            findUsagesForMethod(CustomUtil.getMethodSignatureForPsiElement(containingMethod,methodClass), maxDepth, currentDepth + 1, currentPath);
+                            String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
+                            System.out.println("Method " + callingMethod + " is used in: " + methodSignature);
+                            findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
                         }
                     }
                 }
@@ -288,6 +306,66 @@ public final class ChangeTrackingService {
             });
         }
     }
+
+    //Below Part need to be made
+
+//    public void runAffectedTests() {
+//        Set<String> affectedMethodsSignatures = AFFECTED_METHODS.keySet();
+//        Set<PsiMethod> affectedMethods = getAffectedMethods(affectedMethodsSignatures);
+//
+////        Set<PsiMethod> publicMethodTests = CheckPublicMethodTest.findTestsForPublicMethods(affectedMethods);
+////        for(PsiMethod m: publicMethodTests){
+////            System.out.println(m.getName());
+////        }
+//        Set<PsiMethod> privateMethodTests = CheckPrivateMethods.findTestsForPrivateMethods(affectedMethods,project);
+//        for(PsiMethod m: privateMethodTests){
+//            System.out.println(m.getName());
+//        }
+//        Set<PsiMethod> allTests = new HashSet<>();
+//        //allTests.addAll(publicMethodTests);
+//        allTests.addAll(privateMethodTests);
+//
+//        for(PsiMethod m: allTests){
+//            System.out.println(m.getName());
+//        }
+//        //runTests(allTests);
+//    }
+//
+//    private Set<PsiMethod> getAffectedMethods(Set<String> affectedMethodsSignatures) {
+//        Set<PsiMethod> affectedMethods = new HashSet<>();
+//        for (String methodSignature : affectedMethodsSignatures) {
+//            PsiMethod psiMethod = CustomUtil.convertSignatureToPsiMethod(methodSignature,project);
+//            if (psiMethod != null) {
+//                affectedMethods.add(psiMethod);
+//            }
+//        }
+//        for(PsiMethod m: affectedMethods){
+//            System.out.println(m);
+//        }
+//        return affectedMethods;
+//    }
+//
+//
+//    public void runTests(Set<PsiMethod> testMethods) {
+//        Launcher launcher = LauncherFactory.create();
+//        System.out.println("Available Test Engines: " + launcher);
+//
+//        SummaryGeneratingListener listener = new SummaryGeneratingListener();
+//
+//        for (PsiMethod method : testMethods) {
+//            String className = method.getContainingClass().getQualifiedName();
+//            String methodName = method.getName();
+//
+//            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder.request()
+//                    .selectors(selectMethod(className, methodName))
+//                    .build();
+//
+//            launcher.execute(request, listener);
+//        }
+//
+//        listener.getSummary().printTo(new PrintWriter(System.out));
+//    }
+
 
 }
 
