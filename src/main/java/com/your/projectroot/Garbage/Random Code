@@ -938,3 +938,81 @@ private String getMethodSignature(MethodDeclaration method) {
         signatureBuilder.append(')');
         return signatureBuilder.toString();
     }
+
+
+
+Code for Invoke -
+//        Set<PsiMethod> testMethodsUsingPrivateMethods = new HashSet<>();
+//        PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(project);
+//        GlobalSearchScope searchScope = GlobalSearchScope.projectScope(project);
+//
+//        searchHelper.processAllFilesWithWord("@Test", searchScope, psifile -> {
+//            System.out.println(psifile);
+//            psifile.accept(new JavaRecursiveElementVisitor() {
+//                @Override
+//                public void visitMethod(@NotNull PsiMethod method) {
+//                    super.visitMethod(method);
+//                    if (CustomUtil.isTestMethod(method) &&
+//                            usesReflectionToAccessPrivateMethods(method) &&
+//                            checkForPrivateMethod(method, privateMethods)) {
+//                        testMethodsUsingPrivateMethods.add(method);
+//                    }
+//                }
+//            });
+//            return true;
+//        },true);
+//
+//        return testMethodsUsingPrivateMethods;
+
+
+
+private static boolean usesReflectionToAccessPrivateMethods(PsiMethod method, Set<PsiMethod> privateMethods) {
+        Set<String> privateMethodNames = new HashSet<>();
+        for (PsiMethod privateMethod : privateMethods) {
+            privateMethodNames.add(privateMethod.getName());
+        }
+
+        final boolean[] usesReflection = {false};
+
+        method.accept(new JavaRecursiveElementWalkingVisitor() {
+            @Override
+            public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
+
+                super.visitMethodCallExpression(expression);
+                PsiMethod resolvedMethod = expression.resolveMethod();
+                if (resolvedMethod != null) {
+                    String methodName = resolvedMethod.getName();
+                    if ("invoke".equals(methodName)) {
+                        System.out.println("here1");
+                        // Check if the method being invoked is among the private methods
+                        PsiExpression[] arguments = expression.getArgumentList().getExpressions();
+                        if (arguments.length > 0 && arguments[0] instanceof PsiReferenceExpression refExpression) {
+                            PsiElement resolvedElement = refExpression.resolve();
+                            if (resolvedElement instanceof PsiVariable variable) {
+                                PsiElement initializer = variable.getInitializer();
+                                PsiMethodCallExpression callExpression = PsiTreeUtil.getChildOfType(initializer, PsiMethodCallExpression.class);
+                                PsiMethod calledMethod = callExpression != null ? callExpression.resolveMethod() : null;
+                                String calledMethodName = calledMethod != null ? calledMethod.getName() : null;
+                                if (privateMethodNames.contains(calledMethodName)) {
+                                    usesReflection[0] = true;
+                                }
+                            }
+                        }
+                    }
+                    else if ("setAccessible".equals(methodName)) {
+                        System.out.println("here2");
+                        PsiExpression[] arguments = expression.getArgumentList().getExpressions();
+                        if (arguments.length == 1 && arguments[0] instanceof PsiLiteralExpression literalExpression) {
+                            Object value = literalExpression.getValue();
+                            if (value instanceof Boolean) {
+                                usesReflection[0] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        });
+
+        System.out.println(usesReflection[0]);
+        return usesReflection[0];
+    }

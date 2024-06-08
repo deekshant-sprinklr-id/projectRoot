@@ -117,4 +117,11 @@ public class CustomUtil {
         return null;
     }
 
+    public static String getCallingMethodName(String expression){
+        int startIndex=expression.indexOf('"');
+        int lastIndex=expression.lastIndexOf('"');
+        return expression.substring(startIndex + 1, lastIndex);
+    }
+
+
 }

@@ -113,6 +113,9 @@ public final class ChangeTrackingService {
         System.out.println(PRIVATE_METHODS);
         //Printing Tests of Public Methods
         System.out.println(PUBLIC_METHOD_TESTS);
+
+        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project,PRIVATE_METHODS);
+        System.out.println(privateUsages);
     }
 
     private String getOldFileContent(VirtualFile file) throws IOException {
