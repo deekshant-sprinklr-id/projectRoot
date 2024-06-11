@@ -1,10 +1,7 @@
 package com.your.projectroot;
 
 import com.github.javaparser.ast.body.CallableDeclaration;
-import com.intellij.openapi.project.Project;
 import com.intellij.psi.*;
-import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.util.PsiTreeUtil;
 
 public class CustomUtil {
@@ -82,46 +79,9 @@ public class CustomUtil {
         return "";
     }
 
-    public static String extractMethodNameForClass(String methodSignature) {
-        int lastDotIndex = methodSignature.lastIndexOf('.');
-        if (lastDotIndex != -1) {
-            int methodStartIndex = methodSignature.lastIndexOf('.', lastDotIndex - 1);
-            if (methodStartIndex != -1) {
-                return methodSignature.substring(methodStartIndex + 1, lastDotIndex);
-            }
-        }
-        return "";
-    }
-
     public static boolean isTestMethod(PsiMethod method) {
         PsiAnnotation testAnnotation = method.getAnnotation("org.junit.jupiter.api.Test");
         return testAnnotation != null;
     }
-
-    public static PsiMethod convertSignatureToPsiMethod(String methodSignature,Project project) {
-        String className = extractClassName(methodSignature);
-        String methodName = extractMethodName(methodSignature);
-        String[] parameterTypes = extractParameterTypes(methodSignature);
-
-        PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
-        GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
-        PsiClass[] classes = shortNamesCache.getClassesByName(className, scope);
-
-        for (PsiClass psiClass : classes) {
-            for (PsiMethod method : psiClass.findMethodsByName(methodName, false)) {
-                if (isMatchingParameters(method, parameterTypes)) {
-                    return method;
-                }
-            }
-        }
-        return null;
-    }
-
-    public static String getCallingMethodName(String expression){
-        int startIndex=expression.indexOf('"');
-        int lastIndex=expression.lastIndexOf('"');
-        return expression.substring(startIndex + 1, lastIndex);
-    }
-
 
 }

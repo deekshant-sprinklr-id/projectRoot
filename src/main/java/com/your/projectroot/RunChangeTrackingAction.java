@@ -7,8 +7,20 @@ import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
 import org.jetbrains.annotations.NotNull;
 
+/**
+ * This class represents an action that tracks code changes and runs tests based on user-specified depth levels.
+ * When the action is performed, it prompts the user to input the depth level for method usage search,
+ * then initiates the change tracking process and displays a notification.
+ */
 public class RunChangeTrackingAction extends AnAction {
 
+    /**
+     * This method is responsible for performing the action of the plugin and displaying a notification when the user
+     * calls the plugin. It prompts the user to enter the depth level for method usage search and calls the service
+     * that handles the logic of the plugin.
+     *
+     * @param e The event that triggers the plugin action.
+     */
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
@@ -25,7 +37,7 @@ public class RunChangeTrackingAction extends AnAction {
                     final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
                     changeTrackingService.trackChangesAndRunTests(depth);
 
-                    //Implementing the Notification Feature
+                    // Implementing the Notification Feature
                     final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
                     if (notificationGroup != null) {
                         final Notification notification = notificationGroup.createNotification(

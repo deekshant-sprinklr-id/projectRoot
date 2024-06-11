@@ -12,10 +12,7 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.PsiElement;
-import com.intellij.psi.PsiMethod;
-import com.intellij.psi.PsiModifier;
-import com.intellij.psi.PsiReference;
+import com.intellij.psi.*;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.search.searches.ReferencesSearch;
@@ -36,6 +33,9 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 
+/**
+ * This Class contains the main logic of the plugin.
+ */
 @Service(Service.Level.PROJECT)
 public final class ChangeTrackingService {
 
@@ -62,43 +62,8 @@ public final class ChangeTrackingService {
         for (LocalChangeList changeList : changes) {
             for (Change change : changeList.getChanges()) {
                 VirtualFile file = change.getVirtualFile();
-
                 if (file != null) {
-                    // Process each changed file to determine affected unit tests
-                    final String sourceFilePath = file.getPath();
-                    System.out.println("Changed Class: " + sourceFilePath);
-                    int lastInd = sourceFilePath.lastIndexOf('.');
-                    int startInd = sourceFilePath.lastIndexOf('/');
-                    String ClassName = sourceFilePath.substring(startInd + 1, lastInd);
-                    // Get old and new content of the file
-                    String oldContent = null;
-                    try {
-                        oldContent = getOldFileContent(file);
-
-                    } catch (IOException e) {
-                        System.out.println("Cannot get OLD file content");
-                        logger.info("Cannot get OLD file content");
-                    }
-                    //might cause problem with this initializing
-                    String newContent = "";
-                    try {
-                        newContent = getNewFileContent(file);
-                    } catch (RuntimeException ex) {
-                        System.out.println("Cannot get NEW file content");
-                        logger.info("Cannot get NEW file content");
-                    }
-
-                    if (oldContent != null) {
-                        final JavaParser parser = new JavaParser();
-                        final CompilationUnit oldCompilationUnit = parser.parse(new ByteArrayInputStream(oldContent.getBytes())).getResult().orElse(null);
-                        final CompilationUnit newCompilationUnit = parser.parse(new ByteArrayInputStream(newContent.getBytes())).getResult().orElse(null);
-
-                        // Compare methods
-                        compareMethods(oldCompilationUnit, newCompilationUnit, ClassName);
-                    } else {
-                        logger.info("Past Commit Content is null");
-                    }
-
+                    updatingChangedMethodsByComparing(file);
                 } else {
                     System.out.println("File is null");
                 }
@@ -116,8 +81,50 @@ public final class ChangeTrackingService {
 
         Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project,PRIVATE_METHODS);
         System.out.println(privateUsages);
+
+
+        Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
+        allTestMethods.addAll(privateUsages);
+
+        IntelliJTestRunner.runTests(project, allTestMethods);
+
     }
 
+    private void updatingChangedMethodsByComparing(VirtualFile file){
+        final String sourceFilePath = file.getPath();
+        System.out.println("Changed Class: " + sourceFilePath);
+        int lastInd = sourceFilePath.lastIndexOf('.');
+        int startInd = sourceFilePath.lastIndexOf('/');
+        String ClassName = sourceFilePath.substring(startInd + 1, lastInd);
+        // Get old and new content of the file
+        String oldContent = null;
+        try {
+            oldContent = getOldFileContent(file);
+
+        } catch (IOException e) {
+            System.out.println("Cannot get OLD file content");
+            logger.info("Cannot get OLD file content");
+        }
+        //might cause problem with this initializing
+        String newContent = "";
+        try {
+            newContent = getNewFileContent(file);
+        } catch (RuntimeException ex) {
+            System.out.println("Cannot get NEW file content");
+            logger.info("Cannot get NEW file content");
+        }
+
+        if (oldContent != null) {
+            final JavaParser parser = new JavaParser();
+            final CompilationUnit oldCompilationUnit = parser.parse(new ByteArrayInputStream(oldContent.getBytes())).getResult().orElse(null);
+            final CompilationUnit newCompilationUnit = parser.parse(new ByteArrayInputStream(newContent.getBytes())).getResult().orElse(null);
+
+            // Compare methods
+            compareMethods(oldCompilationUnit, newCompilationUnit, ClassName);
+        } else {
+            logger.info("Past Commit Content is null");
+        }
+    }
     private String getOldFileContent(VirtualFile file) throws IOException {
         String projectBasePath = project.getBasePath();
         String absoluteFilePath = file.getPath();
@@ -130,7 +137,7 @@ public final class ChangeTrackingService {
         } else {
             logger.info("Project's base path is null");
         }
-
+        System.out.println(repoDir);
 
         try (Git git = Git.open(repoDir)) {
             Repository repository = git.getRepository();
@@ -297,7 +304,6 @@ public final class ChangeTrackingService {
         currentPath.remove(callingMethod);
     }
 
-
     private static class MethodVisitor extends VoidVisitorAdapter<List<MethodDeclaration>> {
         @Override
         public void visit(ClassOrInterfaceDeclaration classOrInterfaceDeclaration, List<MethodDeclaration> collector) {
@@ -309,66 +315,6 @@ public final class ChangeTrackingService {
             });
         }
     }
-
-    //Below Part need to be made
-
-//    public void runAffectedTests() {
-//        Set<String> affectedMethodsSignatures = AFFECTED_METHODS.keySet();
-//        Set<PsiMethod> affectedMethods = getAffectedMethods(affectedMethodsSignatures);
-//
-////        Set<PsiMethod> publicMethodTests = CheckPublicMethodTest.findTestsForPublicMethods(affectedMethods);
-////        for(PsiMethod m: publicMethodTests){
-////            System.out.println(m.getName());
-////        }
-//        Set<PsiMethod> privateMethodTests = CheckPrivateMethods.findTestsForPrivateMethods(affectedMethods,project);
-//        for(PsiMethod m: privateMethodTests){
-//            System.out.println(m.getName());
-//        }
-//        Set<PsiMethod> allTests = new HashSet<>();
-//        //allTests.addAll(publicMethodTests);
-//        allTests.addAll(privateMethodTests);
-//
-//        for(PsiMethod m: allTests){
-//            System.out.println(m.getName());
-//        }
-//        //runTests(allTests);
-//    }
-//
-//    private Set<PsiMethod> getAffectedMethods(Set<String> affectedMethodsSignatures) {
-//        Set<PsiMethod> affectedMethods = new HashSet<>();
-//        for (String methodSignature : affectedMethodsSignatures) {
-//            PsiMethod psiMethod = CustomUtil.convertSignatureToPsiMethod(methodSignature,project);
-//            if (psiMethod != null) {
-//                affectedMethods.add(psiMethod);
-//            }
-//        }
-//        for(PsiMethod m: affectedMethods){
-//            System.out.println(m);
-//        }
-//        return affectedMethods;
-//    }
-//
-//
-//    public void runTests(Set<PsiMethod> testMethods) {
-//        Launcher launcher = LauncherFactory.create();
-//        System.out.println("Available Test Engines: " + launcher);
-//
-//        SummaryGeneratingListener listener = new SummaryGeneratingListener();
-//
-//        for (PsiMethod method : testMethods) {
-//            String className = method.getContainingClass().getQualifiedName();
-//            String methodName = method.getName();
-//
-//            LauncherDiscoveryRequest request = LauncherDiscoveryRequestBuilder.request()
-//                    .selectors(selectMethod(className, methodName))
-//                    .build();
-//
-//            launcher.execute(request, listener);
-//        }
-//
-//        listener.getSummary().printTo(new PrintWriter(System.out));
-//    }
-
 
 }
 

@@ -1,10 +1,12 @@
 package com.your.projectroot;
 
 import com.intellij.openapi.project.Project;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiMethod;
 import com.intellij.psi.search.GlobalSearchScope;
-import com.intellij.psi.search.searches.AnnotatedElementsSearch;
-import org.jetbrains.annotations.NotNull;
+import com.intellij.psi.search.PsiSearchHelper;
+import com.intellij.psi.search.TextOccurenceProcessor;
+import com.intellij.psi.search.UsageSearchContext;
 
 import java.util.HashMap;
 import java.util.HashSet;
@@ -12,105 +14,35 @@ import java.util.Set;
 
 public class PrivateMethodUsageFinder {
 
-    public static Set<PsiMethod> findPrivateMethodUsages(Project project,Set<PsiMethod> privateMethods) {
+    public static Set<PsiMethod> findPrivateMethodUsages(Project project, Set<PsiMethod> privateMethods) {
         Set<PsiMethod> testMethodsUsingPrivateMethods = new HashSet<>();
+        PsiSearchHelper searchHelper = PsiSearchHelper.getInstance(project);
         GlobalSearchScope searchScope = GlobalSearchScope.projectScope(project);
 
-        PsiClass testAnnotation = JavaPsiFacade.getInstance(project).findClass("org.junit.jupiter.api.Test", GlobalSearchScope.allScope(project));
-
-        if (testAnnotation == null) {
-            return testMethodsUsingPrivateMethods; // No @Test annotation found in the project
+        HashMap<String, PsiMethod> privateMethodNames = new HashMap<>();
+        for (PsiMethod privateMethod : privateMethods) {
+            privateMethodNames.put(privateMethod.getName(), privateMethod);
         }
 
-        AnnotatedElementsSearch.searchPsiMethods(testAnnotation, searchScope).forEach(method -> {
+        for (String methodName : privateMethodNames.keySet()) {
+            TextOccurenceProcessor processor = (element, offsetInElement) -> {
 
-            if (usesReflectionToAccessPrivateMethods(method) && checkForPrivateMethod(method, privateMethods)) {
-                System.out.println(method);
-                System.out.println(testAnnotation);
-                testMethodsUsingPrivateMethods.add(method);
-            }
-            return true;
-        });
+                if (element.getText().contains(methodName)) {
+                    PsiElement parent = element.getParent();
+                    if (parent instanceof PsiMethod psiMethod && CustomUtil.isTestMethod(psiMethod)) {
+                        System.out.println("Found string '" + methodName + "' in method: " + psiMethod.getName() +
+                                " in file: " + psiMethod.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());
+                        testMethodsUsingPrivateMethods.add(psiMethod);
+                    } else {
+                        System.out.println("Found string '" + methodName + "' in file: " +
+                                element.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());
+                    }
+                }
+                return true; // Continue searching
+            };
+            searchHelper.processElementsWithWord(processor, searchScope, methodName, UsageSearchContext.IN_STRINGS, true);
+        }
 
         return testMethodsUsingPrivateMethods;
-    }
-
-    private static boolean usesReflectionToAccessPrivateMethods(PsiMethod method) {
-        final boolean[] usesReflection = {false};
-
-        method.accept(new JavaRecursiveElementWalkingVisitor() {
-            @Override
-            public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
-                super.visitMethodCallExpression(expression);
-                PsiMethod resolvedMethod = expression.resolveMethod();
-                String methodName = resolvedMethod != null ? resolvedMethod.getName() : null;
-                if ("setAccessible".equals(methodName)) {
-                    PsiExpression[] arguments = expression.getArgumentList().getExpressions();
-                    if (arguments.length == 1 && arguments[0] instanceof PsiLiteralExpression literalExpression) {
-                        Object value = literalExpression.getValue();
-                        if (value instanceof Boolean) {
-                            usesReflection[0]=true;
-                        }
-                    }
-                }
-                else if("getDeclaredMethod".equals(methodName)){
-                    PsiExpression[] arguments = expression.getArgumentList().getExpressions();
-                    if (arguments.length == 1 && arguments[0] instanceof PsiLiteralExpression literalExpression) {
-                        Object value = literalExpression.getValue();
-                        if (value instanceof String) {
-                            usesReflection[0]=true;
-                        }
-                    }
-                }
-                else if("getDeclaredMethods".equals(methodName)){
-                    PsiExpression[] arguments = expression.getArgumentList().getExpressions();
-                    if (arguments.length == 0) {
-                        usesReflection[0]=true;
-                    }
-                }
-            }
-        });
-
-        return usesReflection[0];
-    }
-
-    private static boolean checkForPrivateMethod(PsiMethod method, Set<PsiMethod> privateMethods) {
-        HashMap<PsiMethod,String> privateMethodNames = new HashMap<>();
-        for (PsiMethod privateMethod : privateMethods) {
-            privateMethodNames.put(privateMethod,privateMethod.getName());
-        }
-        final boolean[] usesMethod = {false};
-
-        method.accept(new JavaRecursiveElementWalkingVisitor() {
-            @Override
-            public void visitMethodCallExpression(@NotNull PsiMethodCallExpression expression) {
-                super.visitMethodCallExpression(expression);
-                PsiMethod resolvedMethod = expression.resolveMethod();
-                String methodName = resolvedMethod != null ? resolvedMethod.getName() : null;
-                if("equals".equals(methodName)){
-                    PsiExpression[] arguments = expression.getArgumentList().getExpressions();
-                    if(arguments[0].textContains('"')){
-                        String privateMethod = CustomUtil.getCallingMethodName(arguments[0].getText());
-                        if(privateMethodNames.containsValue(privateMethod)){
-                            usesMethod[0] = true;
-                        }
-                    }
-                    else{
-                        String qualifiedName = expression.getMethodExpression().getQualifiedName();
-                        String privateMethod = CustomUtil.getCallingMethodName(qualifiedName);
-                        if(privateMethodNames.containsValue(privateMethod)){
-                            usesMethod[0] = true;
-                        }
-                    }
-                }else if("getDeclaredMethod".equals(methodName)){
-                    PsiExpression[] arguments = expression.getArgumentList().getExpressions();
-                    String privateMethod = CustomUtil.getCallingMethodName(arguments[0].getText());
-                    if(privateMethodNames.containsValue(privateMethod)){
-                        usesMethod[0] = true;
-                    }
-                }
-            }
-        });
-        return usesMethod[0];
     }
 }

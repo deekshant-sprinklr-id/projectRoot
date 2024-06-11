@@ -19,19 +19,14 @@ dependencies {
     }
     implementation 'org.jetbrains:annotations:24.0.1'
     compileOnly 'com.jetbrains:ideaIC:2023.2.6'
-
-    // JUnit 5 dependencies
-    implementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
-    implementation 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
-    runtimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
-    implementation 'org.junit.platform:junit-platform-launcher:1.10.2'
-    implementation 'org.junit.platform:junit-platform-engine:1.10.2' // Ensure this is included
+     //JUnit 5 dependencies
+    testRuntimeOnly "org.junit.vintage:junit-vintage-engine:5.7.0" // Ensure this is included
 }
 
 intellij {
     version.set '2023.2.6'
     type.set 'IC' // Target IDE Platform
-    plugins = ['java']
+    plugins = ['java','junit']
 }
 
 tasks.withType(JavaCompile).configureEach {

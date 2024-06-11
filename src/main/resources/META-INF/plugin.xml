@@ -9,6 +9,7 @@
 
     <depends>com.intellij.modules.platform</depends>
     <depends>com.intellij.modules.java</depends>
+    <depends>JUnit</depends>
 
     <actions>
         <action id="com.your.projectroot.RunChangeTrackingAction"
