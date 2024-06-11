@@ -254,7 +254,6 @@ public final class ChangeTrackingService {
             }
 
             for (String removedMethodName : oldMethodsMap.keySet()) {
-                System.out.println("Method removed: " + removedMethodName);
                 CHANGES.add(removedMethodName);
             }
         } else {
