@@ -17,8 +17,17 @@ import com.intellij.psi.PsiMethod;
 import java.util.LinkedHashSet;
 import java.util.Set;
 
+/**
+ * Utility class for running JUnit tests within an IntelliJ project.
+ */
 public class IntelliJTestRunner {
 
+    /**
+     * Runs the specified set of JUnit test methods within the given IntelliJ project.
+     *
+     * @param project    The IntelliJ project in which to run the tests.
+     * @param testMethods The set of test methods to be run.
+     */
     public static void runTests(Project project, Set<PsiMethod> testMethods) {
         RunManager runManager = RunManager.getInstance(project);
 
@@ -69,6 +78,3 @@ public class IntelliJTestRunner {
         ExecutionUtil.runConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance());
     }
 }
-
-
-

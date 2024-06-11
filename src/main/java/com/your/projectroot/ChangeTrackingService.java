@@ -34,7 +34,9 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 
 /**
- * This Class contains the main logic of the plugin.
+ * This class contains the main logic of the plugin for tracking code changes and running relevant tests.
+ * It tracks changes in local files, compares old and new versions, identifies affected methods,
+ * and runs corresponding tests.
  */
 @Service(Service.Level.PROJECT)
 public final class ChangeTrackingService {
@@ -46,10 +48,20 @@ public final class ChangeTrackingService {
     private final Set<PsiMethod> PRIVATE_METHODS = new HashSet<>();
     private final Set<PsiMethod> PUBLIC_METHOD_TESTS = new HashSet<>();
 
+    /**
+     * Constructs a ChangeTrackingService instance for the specified project.
+     *
+     * @param project The IntelliJ project instance.
+     */
     public ChangeTrackingService(Project project) {
         this.project = project;
     }
 
+    /**
+     * Tracks changes in the project files, identifies affected methods, and runs relevant tests.
+     *
+     * @param maxDepth The maximum depth for method usage search.
+     */
     public void trackChangesAndRunTests(int maxDepth) {
         System.out.println("Beginning: " + maxDepth);
         final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
@@ -58,7 +70,6 @@ public final class ChangeTrackingService {
         final List<LocalChangeList> changes = changeListManager.getChangeLists();
 
         // Iterate over changes and process them
-
         for (LocalChangeList changeList : changes) {
             for (Change change : changeList.getChanges()) {
                 VirtualFile file = change.getVirtualFile();
@@ -72,40 +83,43 @@ public final class ChangeTrackingService {
 
         findMethodUsages(maxDepth);
 
-        //Printing Changes
+        // Printing Changes
         System.out.println(AFFECTED_METHODS);
-        //Printing Private Methods
+        // Printing Private Methods
         System.out.println(PRIVATE_METHODS);
-        //Printing Tests of Public Methods
+        // Printing Tests of Public Methods
         System.out.println(PUBLIC_METHOD_TESTS);
 
-        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project,PRIVATE_METHODS);
+        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
         System.out.println(privateUsages);
-
 
         Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
         allTestMethods.addAll(privateUsages);
 
         IntelliJTestRunner.runTests(project, allTestMethods);
-
     }
 
-    private void updatingChangedMethodsByComparing(VirtualFile file){
+    /**
+     * Updates the list of changed methods by comparing the old and new versions of a given file.
+     *
+     * @param file The virtual file to be compared.
+     */
+    private void updatingChangedMethodsByComparing(VirtualFile file) {
         final String sourceFilePath = file.getPath();
         System.out.println("Changed Class: " + sourceFilePath);
         int lastInd = sourceFilePath.lastIndexOf('.');
         int startInd = sourceFilePath.lastIndexOf('/');
         String ClassName = sourceFilePath.substring(startInd + 1, lastInd);
+
         // Get old and new content of the file
         String oldContent = null;
         try {
             oldContent = getOldFileContent(file);
-
         } catch (IOException e) {
             System.out.println("Cannot get OLD file content");
             logger.info("Cannot get OLD file content");
         }
-        //might cause problem with this initializing
+
         String newContent = "";
         try {
             newContent = getNewFileContent(file);
@@ -125,6 +139,14 @@ public final class ChangeTrackingService {
             logger.info("Past Commit Content is null");
         }
     }
+
+    /**
+     * Retrieves the content of the file from the last commit.
+     *
+     * @param file The virtual file whose content is to be retrieved.
+     * @return The content of the file as a string.
+     * @throws IOException If an I/O error occurs.
+     */
     private String getOldFileContent(VirtualFile file) throws IOException {
         String projectBasePath = project.getBasePath();
         String absoluteFilePath = file.getPath();
@@ -132,7 +154,7 @@ public final class ChangeTrackingService {
         String relativeFilePath = null;
         if (projectBasePath != null) {
             repoDir = new File(projectBasePath);
-            //Convert to relative path
+            // Convert to relative path
             relativeFilePath = absoluteFilePath.substring(projectBasePath.length() + 1);
         } else {
             logger.info("Project's base path is null");
@@ -183,7 +205,12 @@ public final class ChangeTrackingService {
         }
     }
 
-
+    /**
+     * Retrieves the current content of the file.
+     *
+     * @param file The virtual file whose content is to be retrieved.
+     * @return The content of the file as a string.
+     */
     private String getNewFileContent(VirtualFile file) {
         try {
             byte[] content = file.contentsToByteArray();
@@ -194,6 +221,13 @@ public final class ChangeTrackingService {
         }
     }
 
+    /**
+     * Compares the methods in the old and new versions of a compilation unit.
+     *
+     * @param oldCompilationUnit The old compilation unit.
+     * @param newCompilationUnit The new compilation unit.
+     * @param ClassName          The name of the class containing the methods.
+     */
     private void compareMethods(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit, String ClassName) {
         if (oldCompilationUnit != null && newCompilationUnit != null) {
             final List<MethodDeclaration> oldMethods = new ArrayList<>();
@@ -219,7 +253,6 @@ public final class ChangeTrackingService {
                 }
             }
 
-
             for (String removedMethodName : oldMethodsMap.keySet()) {
                 System.out.println("Method removed: " + removedMethodName);
                 CHANGES.add(removedMethodName);
@@ -233,6 +266,11 @@ public final class ChangeTrackingService {
         }
     }
 
+    /**
+     * Finds the usages of changed methods and updates the affected methods map.
+     *
+     * @param maxDepth The maximum depth for method usage search.
+     */
     private void findMethodUsages(int maxDepth) {
         for (String c : CHANGES) {
             System.out.println(c);
@@ -242,9 +280,16 @@ public final class ChangeTrackingService {
             System.out.println(change + " is Called");
             findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
         }
-
     }
 
+    /**
+     * Recursively finds the usages of a given method up to the specified depth.
+     *
+     * @param callingMethod The method whose usages are to be found.
+     * @param maxDepth      The maximum depth for method usage search.
+     * @param currentDepth  The current depth of the search.
+     * @param currentPath   The set of methods visited in the current path to detect cycles.
+     */
     private void findUsagesForMethod(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
         if (currentDepth > maxDepth) {
             return;
@@ -272,12 +317,12 @@ public final class ChangeTrackingService {
 
         for (PsiMethod method : psiMethods) {
             if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
-                //Adding Private Methods
-                if(method.hasModifierProperty(PsiModifier.PRIVATE)){
+                // Adding Private Methods
+                if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
                     PRIVATE_METHODS.add(method);
                 }
-                //Adding Public Method Test
-                if(CustomUtil.isTestMethod(method)){
+                // Adding Public Method Test
+                if (CustomUtil.isTestMethod(method)) {
                     PUBLIC_METHOD_TESTS.add(method);
                 }
                 Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
@@ -300,10 +345,13 @@ public final class ChangeTrackingService {
             }
         }
 
-        //Removing Method from current path after traversal
+        // Removing Method from current path after traversal
         currentPath.remove(callingMethod);
     }
 
+    /**
+     * Visitor class for extracting method declarations from a compilation unit.
+     */
     private static class MethodVisitor extends VoidVisitorAdapter<List<MethodDeclaration>> {
         @Override
         public void visit(ClassOrInterfaceDeclaration classOrInterfaceDeclaration, List<MethodDeclaration> collector) {
@@ -315,7 +363,4 @@ public final class ChangeTrackingService {
             });
         }
     }
-
 }
-
-
