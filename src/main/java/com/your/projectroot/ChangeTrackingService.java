@@ -63,7 +63,7 @@ public final class ChangeTrackingService {
      * @param maxDepth The maximum depth for method usage search.
      */
     public void trackChangesAndRunTests(int maxDepth) {
-        System.out.println("Beginning: " + maxDepth);
+        System.out.println("Beginning: " + maxDepth);//DEBUG
         final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
 
         // Get the list of local changes
@@ -74,29 +74,19 @@ public final class ChangeTrackingService {
             for (Change change : changeList.getChanges()) {
                 VirtualFile file = change.getVirtualFile();
                 if (file != null) {
-                    updatingChangedMethodsByComparing(file);
+                    identifyChangedMethodsByComparing(file);
                 } else {
-                    System.out.println("File is null");
+                    System.out.println("File is null");//DEBUG
+                    logger.info("File is null");
                 }
             }
         }
 
+        //DFS Traversal to get Usages
         findMethodUsages(maxDepth);
 
-        // Printing Changes
-        System.out.println(AFFECTED_METHODS);
-        // Printing Private Methods
-        System.out.println(PRIVATE_METHODS);
-        // Printing Tests of Public Methods
-        System.out.println(PUBLIC_METHOD_TESTS);
-
-        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
-        System.out.println(privateUsages);
-
-        Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
-        allTestMethods.addAll(privateUsages);
-
-        IntelliJTestRunner.runTests(project, allTestMethods);
+        //Running the Tests
+        runningPrivateAndPublicMethodsTests();
     }
 
     /**
@@ -104,40 +94,74 @@ public final class ChangeTrackingService {
      *
      * @param file The virtual file to be compared.
      */
-    private void updatingChangedMethodsByComparing(VirtualFile file) {
+    private void identifyChangedMethodsByComparing(VirtualFile file) {
         final String sourceFilePath = file.getPath();
         System.out.println("Changed Class: " + sourceFilePath);
-        int lastInd = sourceFilePath.lastIndexOf('.');
-        int startInd = sourceFilePath.lastIndexOf('/');
-        String ClassName = sourceFilePath.substring(startInd + 1, lastInd);
+
+        String className = CustomUtil.getClassNameFromFilePath(sourceFilePath);
 
         // Get old and new content of the file
-        String oldContent = null;
-        try {
-            oldContent = getOldFileContent(file);
-        } catch (IOException e) {
-            System.out.println("Cannot get OLD file content");
-            logger.info("Cannot get OLD file content");
-        }
-
-        String newContent = "";
-        try {
-            newContent = getNewFileContent(file);
-        } catch (RuntimeException ex) {
-            System.out.println("Cannot get NEW file content");
-            logger.info("Cannot get NEW file content");
-        }
+        String oldContent = getFileContent(file, this::getOldFileContent);
+        String newContent = getFileContent(file, this::getNewFileContent);
 
         if (oldContent != null) {
-            final JavaParser parser = new JavaParser();
-            final CompilationUnit oldCompilationUnit = parser.parse(new ByteArrayInputStream(oldContent.getBytes())).getResult().orElse(null);
-            final CompilationUnit newCompilationUnit = parser.parse(new ByteArrayInputStream(newContent.getBytes())).getResult().orElse(null);
-
-            // Compare methods
-            compareMethods(oldCompilationUnit, newCompilationUnit, ClassName);
+            compareFileContents(oldContent, newContent, className);
         } else {
             logger.info("Past Commit Content is null");
         }
+    }
+
+    /**
+     * Retrieves the content of the file using the provided content retriever.
+     *
+     * @param file The virtual file whose content is to be retrieved.
+     * @param contentRetriever The content retriever function.
+     * @return The content of the file as a string.
+     */
+    private String getFileContent(VirtualFile file, ContentRetriever contentRetriever) {
+        try {
+            return contentRetriever.retrieve(file);
+        } catch (IOException | RuntimeException e) {
+            String message = e instanceof IOException ? "OLD" : "NEW";
+            System.out.println("Cannot get " + message + " file content");
+            logger.info("Cannot get " + message + " file content");
+            return null;
+        }
+    }
+
+    /**
+     * Compares the contents of the old and new versions of a file.
+     *
+     * @param oldContent The content of the old version of the file.
+     * @param newContent The content of the new version of the file.
+     * @param className The name of the class containing the methods.
+     */
+    private void compareFileContents(String oldContent, String newContent, String className) {
+        JavaParser parser = new JavaParser();
+        CompilationUnit oldCompilationUnit = parseContent(parser, oldContent);
+        CompilationUnit newCompilationUnit = parseContent(parser, newContent);
+
+        // Compare methods
+        compareMethods(oldCompilationUnit, newCompilationUnit, className);
+    }
+
+    /**
+     * Parses the content of a file into a CompilationUnit.
+     *
+     * @param parser The JavaParser instance.
+     * @param content The content to be parsed.
+     * @return The parsed CompilationUnit.
+     */
+    private CompilationUnit parseContent(JavaParser parser, String content) {
+        return parser.parse(new ByteArrayInputStream(content.getBytes())).getResult().orElse(null);
+    }
+
+    /**
+     * Functional interface for content retrievers.
+     */
+    @FunctionalInterface
+    private interface ContentRetriever {
+        String retrieve(VirtualFile file) throws IOException;
     }
 
     /**
@@ -149,59 +173,96 @@ public final class ChangeTrackingService {
      */
     private String getOldFileContent(VirtualFile file) throws IOException {
         String projectBasePath = project.getBasePath();
-        String absoluteFilePath = file.getPath();
-        File repoDir = null;
-        String relativeFilePath = null;
-        if (projectBasePath != null) {
-            repoDir = new File(projectBasePath);
-            // Convert to relative path
-            relativeFilePath = absoluteFilePath.substring(projectBasePath.length() + 1);
-        } else {
+        if (projectBasePath == null) {
             logger.info("Project's base path is null");
+            throw new IOException("Project's base path is null");
         }
+
+        String relativeFilePath = CustomUtil.getRelativeFilePath(file, projectBasePath);
+        File repoDir = new File(projectBasePath);
+
         System.out.println(repoDir);
 
         try (Git git = Git.open(repoDir)) {
             Repository repository = git.getRepository();
+            ObjectId headId = resolveHead(repository);
+            return getFileContentFromHeadCommit(repository, headId, relativeFilePath);
+        }
+    }
 
-            // Get the head commit
-            ObjectId headId = repository.resolve("HEAD");
-            if (headId == null) {
-                throw new IOException("Couldn't resolve HEAD");
-            }
 
-            // Get the tree of the head commit
-            try (RevWalk revWalk = new RevWalk(repository)) {
-                RevCommit headCommit = revWalk.parseCommit(headId);
-                ObjectId treeId = headCommit.getTree().getId();
+    /**
+     * Resolves the HEAD commit object ID.
+     *
+     * @param repository The repository to resolve the HEAD commit from.
+     * @return The ObjectId of the HEAD commit.
+     * @throws IOException If the HEAD commit cannot be resolved.
+     */
+    private ObjectId resolveHead(Repository repository) throws IOException {
+        ObjectId headId = repository.resolve("HEAD");
+        if (headId == null) {
+            throw new IOException("Couldn't resolve HEAD");
+        }
+        return headId;
+    }
 
-                // Find the specified file in the tree
-                try (TreeWalk treeWalk = new TreeWalk(repository)) {
-                    treeWalk.addTree(treeId);
-                    treeWalk.setRecursive(true);
+    /**
+     * Retrieves the content of the specified file from the HEAD commit.
+     *
+     * @param repository The repository to retrieve the file content from.
+     * @param headId The ObjectId of the HEAD commit.
+     * @param relativeFilePath The relative path of the file to retrieve.
+     * @return The content of the file as a string.
+     * @throws IOException If an I/O error occurs or the file is not found.
+     */
+    private String getFileContentFromHeadCommit(Repository repository, ObjectId headId, String relativeFilePath) throws IOException {
+        try (RevWalk revWalk = new RevWalk(repository)) {
+            RevCommit headCommit = revWalk.parseCommit(headId);
+            ObjectId treeId = headCommit.getTree().getId();
 
-                    if (relativeFilePath != null) {
-                        treeWalk.setFilter(PathFilter.create(relativeFilePath));
-                    } else {
-                        logger.info("Relative Path is null");
-                    }
+            return findFileContentInTree(repository, treeId, relativeFilePath);
+        }
+    }
 
-                    while (treeWalk.next()) {
-                        String path = treeWalk.getPathString();
-                        if (path.equals(relativeFilePath)) {
-                            // Get the file content
-                            ObjectId objectId = treeWalk.getObjectId(0);
-                            try (ObjectReader objectReader = repository.newObjectReader()) {
-                                ByteArrayOutputStream outputStream = new ByteArrayOutputStream();
-                                objectReader.open(objectId).copyTo(outputStream);
-                                return outputStream.toString(StandardCharsets.UTF_8);
-                            }
-                        }
-                    }
+    /**
+     * Finds the content of the specified file in the given tree.
+     *
+     * @param repository The repository to search.
+     * @param treeId The ObjectId of the tree to search in.
+     * @param relativeFilePath The relative path of the file to find.
+     * @return The content of the file as a string.
+     * @throws IOException If an I/O error occurs or the file is not found.
+     */
+    private String findFileContentInTree(Repository repository, ObjectId treeId, String relativeFilePath) throws IOException {
+        try (TreeWalk treeWalk = new TreeWalk(repository)) {
+            treeWalk.addTree(treeId);
+            treeWalk.setRecursive(true);
+            treeWalk.setFilter(PathFilter.create(relativeFilePath));
 
-                    throw new IOException("File not found in the HEAD commit: " + relativeFilePath);
+            while (treeWalk.next()) {
+                String path = treeWalk.getPathString();
+                if (path.equals(relativeFilePath)) {
+                    return getFileContentFromObjectId(repository, treeWalk.getObjectId(0));
                 }
             }
+
+            throw new IOException("File not found in the HEAD commit: " + relativeFilePath);
+        }
+    }
+
+    /**
+     * Retrieves the content of the file represented by the given ObjectId.
+     *
+     * @param repository The repository to read the file from.
+     * @param objectId The ObjectId of the file.
+     * @return The content of the file as a string.
+     * @throws IOException If an I/O error occurs.
+     */
+    private String getFileContentFromObjectId(Repository repository, ObjectId objectId) throws IOException {
+        try (ObjectReader objectReader = repository.newObjectReader();
+             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+            objectReader.open(objectId).copyTo(outputStream);
+            return outputStream.toString(StandardCharsets.UTF_8);
         }
     }
 
@@ -226,126 +287,88 @@ public final class ChangeTrackingService {
      *
      * @param oldCompilationUnit The old compilation unit.
      * @param newCompilationUnit The new compilation unit.
-     * @param ClassName          The name of the class containing the methods.
+     * @param className          The name of the class containing the methods.
      */
-    private void compareMethods(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit, String ClassName) {
-        if (oldCompilationUnit != null && newCompilationUnit != null) {
-            final List<MethodDeclaration> oldMethods = new ArrayList<>();
-            final List<MethodDeclaration> newMethods = new ArrayList<>();
-            oldCompilationUnit.accept(new MethodVisitor(), oldMethods);
-            newCompilationUnit.accept(new MethodVisitor(), newMethods);
-            Map<String, MethodDeclaration> oldMethodsMap = new HashMap<>();
-            for (MethodDeclaration method : oldMethods) {
-                oldMethodsMap.put(CustomUtil.getSignOfMethodDeclaration(method.getSignature(), ClassName), method);
-            }
+    private void compareMethods(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit, String className) {
+        if (oldCompilationUnit == null || newCompilationUnit == null) {
+            logCompilationUnitStatus(oldCompilationUnit, newCompilationUnit);
+            return;
+        }
 
-            for (MethodDeclaration newMethod : newMethods) {
-                if (!oldMethodsMap.containsKey(CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName))) {
-                    System.out.println("Method added: " + CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                    CHANGES.add(CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                } else {
-                    MethodDeclaration oldMethod = oldMethodsMap.get(CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                    if (!oldMethod.getBody().equals(newMethod.getBody())) {
-                        System.out.println("Method changed: " + CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                        CHANGES.add(CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                    }
-                    oldMethodsMap.remove(CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), ClassName));
-                }
-            }
+        Map<String, MethodDeclaration> oldMethodsMap = extractMethodsToMap(oldCompilationUnit, className);
+        List<MethodDeclaration> newMethods = extractMethods(newCompilationUnit);
 
-            for (String removedMethodName : oldMethodsMap.keySet()) {
-                CHANGES.add(removedMethodName);
-            }
-        } else {
-            if (oldCompilationUnit == null) {
-                logger.info("Getting Old Compilation as null");
+        for (MethodDeclaration newMethod : newMethods) {
+            String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), className);
+            if (!oldMethodsMap.containsKey(methodSignature)) {
+                addMethodChange("added", methodSignature);
             } else {
-                logger.info("Getting New Compilation as null");
+                MethodDeclaration oldMethod = oldMethodsMap.get(methodSignature);
+                if (!oldMethod.getBody().equals(newMethod.getBody())) {
+                    addMethodChange("changed", methodSignature);
+                }
+                oldMethodsMap.remove(methodSignature);
             }
+        }
+
+        // Add removed methods to changes
+        CHANGES.addAll(oldMethodsMap.keySet());
+    }
+
+    /**
+     * Logs the status of the compilation units.
+     *
+     * @param oldCompilationUnit The old compilation unit.
+     * @param newCompilationUnit The new compilation unit.
+     */
+    private void logCompilationUnitStatus(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit) {
+        if (oldCompilationUnit == null) {
+            logger.info("Getting Old Compilation as null");
+        }
+        if (newCompilationUnit == null) {
+            logger.info("Getting New Compilation as null");
         }
     }
 
     /**
-     * Finds the usages of changed methods and updates the affected methods map.
+     * Extracts methods from the compilation unit and maps them by their signature.
      *
-     * @param maxDepth The maximum depth for method usage search.
+     * @param compilationUnit The compilation unit to extract methods from.
+     * @param className       The name of the class containing the methods.
+     * @return A map of method signatures to method declarations.
      */
-    private void findMethodUsages(int maxDepth) {
-        for (String c : CHANGES) {
-            System.out.println(c);
+    private Map<String, MethodDeclaration> extractMethodsToMap(CompilationUnit compilationUnit, String className) {
+        List<MethodDeclaration> methods = extractMethods(compilationUnit);
+        Map<String, MethodDeclaration> methodsMap = new HashMap<>();
+        for (MethodDeclaration method : methods) {
+            String methodSignature = CustomUtil.getSignOfMethodDeclaration(method.getSignature(), className);
+            methodsMap.put(methodSignature, method);
         }
-
-        for (String change : CHANGES) {
-            System.out.println(change + " is Called");
-            findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
-        }
+        return methodsMap;
     }
 
     /**
-     * Recursively finds the usages of a given method up to the specified depth.
+     * Extracts methods from the compilation unit.
      *
-     * @param callingMethod The method whose usages are to be found.
-     * @param maxDepth      The maximum depth for method usage search.
-     * @param currentDepth  The current depth of the search.
-     * @param currentPath   The set of methods visited in the current path to detect cycles.
+     * @param compilationUnit The compilation unit to extract methods from.
+     * @return A list of method declarations.
      */
-    private void findUsagesForMethod(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
-        if (currentDepth > maxDepth) {
-            return;
-        }
-        if (currentPath.contains(callingMethod)) {
-            System.out.println("Cycle detected at: " + callingMethod);
-            return;
-        }
+    private List<MethodDeclaration> extractMethods(CompilationUnit compilationUnit) {
+        List<MethodDeclaration> methods = new ArrayList<>();
+        compilationUnit.accept(new MethodVisitor(), methods);
+        return methods;
+    }
 
-        currentPath.add(callingMethod);
-
-        if (AFFECTED_METHODS.containsKey(callingMethod) && AFFECTED_METHODS.get(callingMethod) <= currentDepth) {
-            return;
-        }
-
-        AFFECTED_METHODS.put(callingMethod, currentDepth);
-
-        GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
-        PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
-
-        String methodName = CustomUtil.extractMethodName(callingMethod);
-        String className = CustomUtil.extractClassName(callingMethod);
-        PsiMethod[] psiMethods = shortNamesCache.getMethodsByName(methodName, scope);
-        String[] parameterTypes = CustomUtil.extractParameterTypes(callingMethod);
-
-        for (PsiMethod method : psiMethods) {
-            if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
-                // Adding Private Methods
-                if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
-                    PRIVATE_METHODS.add(method);
-                }
-                // Adding Public Method Test
-                if (CustomUtil.isTestMethod(method)) {
-                    PUBLIC_METHOD_TESTS.add(method);
-                }
-                Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
-                for (PsiReference reference : references) {
-                    PsiElement element = reference.getElement();
-                    String containingClass = CustomUtil.findDeclaringClassName(element);
-                    if (containingClass != null && Objects.equals(containingClass, className)) {
-                        PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
-                        String methodClass = null;
-                        if (containingMethod != null) {
-                            methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
-                        }
-                        if (containingMethod != null) {
-                            String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
-                            System.out.println("Method " + callingMethod + " is used in: " + methodSignature);
-                            findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
-                        }
-                    }
-                }
-            }
-        }
-
-        // Removing Method from current path after traversal
-        currentPath.remove(callingMethod);
+    /**
+     * Adds a method change to the changes list and logs it.
+     *
+     * @param changeType      The type of change (added or changed).
+     * @param methodSignature The signature of the changed method.
+     */
+    private void addMethodChange(String changeType, String methodSignature) {
+        //DEBUG
+        System.out.println("Method " + changeType + ": " + methodSignature);
+        CHANGES.add(methodSignature);
     }
 
     /**
@@ -361,5 +384,137 @@ public final class ChangeTrackingService {
                 }
             });
         }
+    }
+
+    /**
+     * Finds the usages of changed methods and updates the affected methods map.
+     *
+     * @param maxDepth The maximum depth for method usage search.
+     */
+    private void findMethodUsages(int maxDepth) {
+        //DEBUG
+        for (String c : CHANGES) {
+            System.out.println(c);
+        }
+
+        for (String change : CHANGES) {
+            System.out.println(change + " is Called"); //DEBUG
+            findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
+        }
+    }
+
+    /**
+     * Recursively finds the usages of a given method up to the specified depth.
+     *
+     * @param callingMethod The method whose usages are to be found.
+     * @param maxDepth      The maximum depth for method usage search.
+     * @param currentDepth  The current depth of the search.
+     * @param currentPath   The set of methods visited in the current path to detect cycles.
+     */
+    private void findUsagesForMethod(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
+        if (shouldStopSearch(callingMethod, maxDepth, currentDepth, currentPath)) {
+            return;
+        }
+
+        currentPath.add(callingMethod);
+        AFFECTED_METHODS.put(callingMethod, currentDepth);
+
+        GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+        PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
+
+        String methodName = CustomUtil.extractMethodName(callingMethod);
+        String className = CustomUtil.extractClassName(callingMethod);
+        String[] parameterTypes = CustomUtil.extractParameterTypes(callingMethod);
+        PsiMethod[] psiMethods = shortNamesCache.getMethodsByName(methodName, scope);
+
+        for (PsiMethod method : psiMethods) {
+            if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
+                addMethodToRelevantSets(method);
+
+                Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
+                for (PsiReference reference : references) {
+                    handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
+                }
+            }
+        }
+
+        currentPath.remove(callingMethod);
+    }
+
+    /**
+     * Determines if the search should stop based on the current depth, maximum depth, and presence of cycles.
+     *
+     * @param callingMethod The method whose usages are being searched.
+     * @param maxDepth      The maximum depth for the search.
+     * @param currentDepth  The current depth of the search.
+     * @param currentPath   The current path of visited methods to detect cycles.
+     * @return True if the search should stop, false otherwise.
+     */
+    private boolean shouldStopSearch(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
+        if (currentDepth > maxDepth) {
+            return true;
+        }
+        if (currentPath.contains(callingMethod)) {
+            System.out.println("Cycle detected at: " + callingMethod);//DEBUG
+            return true;
+        }
+        return AFFECTED_METHODS.containsKey(callingMethod) && AFFECTED_METHODS.get(callingMethod) <= currentDepth;
+    }
+
+    /**
+     * Adds the given method to the relevant sets of private methods and public method tests.
+     *
+     * @param method The method to be added.
+     */
+    private void addMethodToRelevantSets(PsiMethod method) {
+        if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
+            PRIVATE_METHODS.add(method);
+        }
+        if (CustomUtil.isTestMethod(method)) {
+            PUBLIC_METHOD_TESTS.add(method);
+        }
+    }
+
+    /**
+     * Handles a method reference by finding the containing method and recursively finding its usages.
+     *
+     * @param callingMethod The method whose usages are being searched.
+     * @param reference     The reference to the method.
+     * @param className     The name of the class containing the method.
+     * @param maxDepth      The maximum depth for the search.
+     * @param currentDepth  The current depth of the search.
+     * @param currentPath   The current path of visited methods to detect cycles.
+     */
+    private void handleMethodReference(String callingMethod, PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
+        PsiElement element = reference.getElement();
+        String containingClass = CustomUtil.findDeclaringClassName(element);
+        if (containingClass != null && Objects.equals(containingClass, className)) {
+            PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+            if (containingMethod != null) {
+                String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
+                String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
+                System.out.println("Method " + callingMethod + " is used in: " + methodSignature);//DEBUG
+                findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
+            }
+        }
+    }
+
+    /**
+     * Checks The Usages of Private Methods and
+     * Runs the Tests of both Private and Public Methods
+     */
+    private void runningPrivateAndPublicMethodsTests(){
+        //DEBUG
+        System.out.println(AFFECTED_METHODS);
+        System.out.println(PRIVATE_METHODS);
+        System.out.println(PUBLIC_METHOD_TESTS);
+
+        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
+        System.out.println(privateUsages);
+
+        Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
+        allTestMethods.addAll(privateUsages);
+
+        IntelliJTestRunner.runTests(project, allTestMethods);
     }
 }

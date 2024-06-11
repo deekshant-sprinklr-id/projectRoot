@@ -25,38 +25,76 @@ public class RunChangeTrackingAction extends AnAction {
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         if (project != null) {
-            String input = Messages.showInputDialog(
-                    project,
-                    "Enter the depth level for the method usage search:",
-                    "Input Depth Level",
-                    Messages.getQuestionIcon()
-            );
+            String input = promptForDepthLevel(project);
             if (input != null && !input.isEmpty()) {
                 try {
                     int depth = Integer.parseInt(input);
-                    final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
-                    changeTrackingService.trackChangesAndRunTests(depth);
-
-                    // Implementing the Notification Feature
-                    final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
-                    if (notificationGroup != null) {
-                        final Notification notification = notificationGroup.createNotification(
-                                "Change tracking",
-                                "Tracking changes and finding method usages",
-                                NotificationType.INFORMATION
-                        );
-                        Notifications.Bus.notify(notification, project);
-                    } else {
-                        System.err.println("Notification group 'CustomNotifications' not found");
-                    }
+                    trackChangesAndNotify(project, depth);
                 } catch (NumberFormatException ex) {
-                    Messages.showErrorDialog(project, "Please enter a valid number for depth level.", "Invalid Input");
+                    showErrorDialog(project, "Please enter a valid number for depth level.", "Invalid Input");
                 }
             } else {
-                Messages.showErrorDialog(project, "Depth level input is required.", "Input Required");
+                showErrorDialog(project, "Depth level input is required.", "Input Required");
             }
         } else {
             System.out.println("Inside actionPerformed, project is null");
         }
+    }
+
+    /**
+     * Prompts the user to enter the depth level for method usage search.
+     *
+     * @param project The IntelliJ project.
+     * @return The user input as a string.
+     */
+    private String promptForDepthLevel(Project project) {
+        return Messages.showInputDialog(
+                project,
+                "Enter the depth level for the method usage search:",
+                "Input Depth Level",
+                Messages.getQuestionIcon()
+        );
+    }
+
+    /**
+     * Tracks changes and runs tests, then displays a notification.
+     *
+     * @param project The IntelliJ project.
+     * @param depth   The depth level for method usage search.
+     */
+    private void trackChangesAndNotify(Project project, int depth) {
+        final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
+        changeTrackingService.trackChangesAndRunTests(depth);
+        displayNotification(project);
+    }
+
+    /**
+     * Displays a notification.
+     *
+     * @param project The IntelliJ project.
+     */
+    private void displayNotification(Project project) {
+        final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
+        if (notificationGroup != null) {
+            final Notification notification = notificationGroup.createNotification(
+                    "Change tracking",
+                    "Tracking changes and finding method usages",
+                    NotificationType.INFORMATION
+            );
+            Notifications.Bus.notify(notification, project);
+        } else {
+            System.err.println("Notification group 'CustomNotifications' not found");
+        }
+    }
+
+    /**
+     * Shows an error dialog with the specified message and title.
+     *
+     * @param project The IntelliJ project.
+     * @param message The error message.
+     * @param title   The title of the error dialog.
+     */
+    private void showErrorDialog(Project project, String message, String title) {
+        Messages.showErrorDialog(project, message, title);
     }
 }

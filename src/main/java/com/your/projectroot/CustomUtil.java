@@ -1,6 +1,7 @@
 package com.your.projectroot;
 
 import com.github.javaparser.ast.body.CallableDeclaration;
+import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
 
@@ -135,5 +136,28 @@ public class CustomUtil {
     public static boolean isTestMethod(PsiMethod method) {
         PsiAnnotation testAnnotation = method.getAnnotation("org.junit.jupiter.api.Test");
         return testAnnotation != null;
+    }
+
+    /**
+     * Extracts ClassName from File path
+     * @param sourceFilePath The path of file
+     * @return The className as String
+     */
+    public static String getClassNameFromFilePath(String sourceFilePath){
+        int lastInd = sourceFilePath.lastIndexOf('.');
+        int startInd = sourceFilePath.lastIndexOf('/');
+        return sourceFilePath.substring(startInd + 1, lastInd);
+    }
+
+    /**
+     * Converts the absolute file path to a relative file path based on the project base path.
+     *
+     * @param file The virtual file.
+     * @param projectBasePath The base path of the project.
+     * @return The relative file path.
+     */
+    public static String getRelativeFilePath(VirtualFile file, String projectBasePath) {
+        String absoluteFilePath = file.getPath();
+        return absoluteFilePath.substring(projectBasePath.length() + 1);
     }
 }

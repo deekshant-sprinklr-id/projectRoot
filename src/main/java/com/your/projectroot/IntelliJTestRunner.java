@@ -25,47 +25,18 @@ public class IntelliJTestRunner {
     /**
      * Runs the specified set of JUnit test methods within the given IntelliJ project.
      *
-     * @param project    The IntelliJ project in which to run the tests.
+     * @param project     The IntelliJ project in which to run the tests.
      * @param testMethods The set of test methods to be run.
      */
     public static void runTests(Project project, Set<PsiMethod> testMethods) {
         RunManager runManager = RunManager.getInstance(project);
-
         ConfigurationType junitConfigType = ConfigurationTypeUtil.findConfigurationType(JUnitConfigurationType.class);
         ConfigurationFactory junitConfigFactory = junitConfigType.getConfigurationFactories()[0];
 
-        // Create a new configuration
         RunnerAndConfigurationSettings settings = runManager.createConfiguration("GlobalTestRunConfiguration", junitConfigFactory);
         JUnitConfiguration configuration = (JUnitConfiguration) settings.getConfiguration();
 
-        JUnitConfiguration.Data data = configuration.getPersistentData();
-        data.TEST_OBJECT = JUnitConfiguration.TEST_PATTERN;
-
-        // Collect all method patterns
-        LinkedHashSet<String> methodPatterns = new LinkedHashSet<>();
-        for (PsiMethod method : testMethods) {
-            PsiClass psiClass = method.getContainingClass();
-            if (psiClass != null) {
-                String className = psiClass.getQualifiedName();
-                String methodName = method.getName();
-                if (className != null) {
-                    String pattern = className + "," + methodName;
-                    methodPatterns.add(pattern);
-                    System.out.println("Added pattern: " + pattern); // Log the pattern
-                }
-            }
-        }
-
-        // Verify that class names and method names are properly captured
-        if (methodPatterns.isEmpty()) {
-            throw new IllegalArgumentException("No valid test methods found to run.");
-        }
-
-        // Set the test pattern
-        data.setPatterns(methodPatterns);
-
-        // Try different search scopes
-        data.setScope(TestSearchScope.WHOLE_PROJECT);
+        setupTestConfigurationData(configuration, testMethods);
 
         // Ensure working directory is set correctly
         configuration.setWorkingDirectory(project.getBasePath());
@@ -77,4 +48,48 @@ public class IntelliJTestRunner {
         // Run the configuration automatically
         ExecutionUtil.runConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance());
     }
+
+    /**
+     * Sets up the test configuration data with the given test methods.
+     *
+     * @param configuration The JUnit configuration to set up.
+     * @param testMethods   The set of test methods to be run.
+     */
+    private static void setupTestConfigurationData(JUnitConfiguration configuration, Set<PsiMethod> testMethods) {
+        JUnitConfiguration.Data data = configuration.getPersistentData();
+        data.TEST_OBJECT = JUnitConfiguration.TEST_PATTERN;
+
+        LinkedHashSet<String> methodPatterns = collectMethodPatterns(testMethods);
+
+        if (methodPatterns.isEmpty()) {
+            throw new IllegalArgumentException("No valid test methods found to run.");
+        }
+
+        data.setPatterns(methodPatterns);
+        data.setScope(TestSearchScope.WHOLE_PROJECT);
+    }
+
+    /**
+     * Collects method patterns from the given set of test methods.
+     *
+     * @param testMethods The set of test methods to collect patterns from.
+     * @return A LinkedHashSet of method patterns.
+     */
+    private static LinkedHashSet<String> collectMethodPatterns(Set<PsiMethod> testMethods) {
+        LinkedHashSet<String> methodPatterns = new LinkedHashSet<>();
+        for (PsiMethod method : testMethods) {
+            PsiClass psiClass = method.getContainingClass();
+            if (psiClass != null) {
+                String className = psiClass.getQualifiedName();
+                String methodName = method.getName();
+                if (className != null) {
+                    String pattern = className + "," + methodName;
+                    methodPatterns.add(pattern);
+                    System.out.println("Added pattern: " + pattern); // DEBUG
+                }
+            }
+        }
+        return methodPatterns;
+    }
+
 }

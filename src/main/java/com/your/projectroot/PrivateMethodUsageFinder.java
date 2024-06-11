@@ -41,18 +41,17 @@ public class PrivateMethodUsageFinder {
                     PsiElement parent = element.getParent();
                     if (parent instanceof PsiMethod psiMethod && CustomUtil.isTestMethod(psiMethod)) {
                         System.out.println("Found string '" + methodName + "' in method: " + psiMethod.getName() +
-                                " in file: " + psiMethod.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());
+                                " in file: " + psiMethod.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset()); //DEBUG
                         testMethodsUsingPrivateMethods.add(psiMethod);
                     } else {
                         System.out.println("Found string '" + methodName + "' in file: " +
-                                element.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());
+                                element.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());//DEBUG
                     }
                 }
                 return true; // Continue searching
             };
             searchHelper.processElementsWithWord(processor, searchScope, methodName, UsageSearchContext.IN_STRINGS, true);
         }
-
         return testMethodsUsingPrivateMethods;
     }
 }
