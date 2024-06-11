@@ -40,12 +40,7 @@ public class PrivateMethodUsageFinder {
                 if (element.getText().contains(methodName)) {
                     PsiElement parent = element.getParent();
                     if (parent instanceof PsiMethod psiMethod && CustomUtil.isTestMethod(psiMethod)) {
-                        System.out.println("Found string '" + methodName + "' in method: " + psiMethod.getName() +
-                                " in file: " + psiMethod.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset()); //DEBUG
                         testMethodsUsingPrivateMethods.add(psiMethod);
-                    } else {
-                        System.out.println("Found string '" + methodName + "' in file: " +
-                                element.getContainingFile().getName() + " at offset: " + element.getTextRange().getStartOffset());//DEBUG
                     }
                 }
                 return true; // Continue searching

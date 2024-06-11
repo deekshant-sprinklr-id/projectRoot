@@ -85,7 +85,6 @@ public class IntelliJTestRunner {
                 if (className != null) {
                     String pattern = className + "," + methodName;
                     methodPatterns.add(pattern);
-                    System.out.println("Added pattern: " + pattern); // DEBUG
                 }
             }
         }

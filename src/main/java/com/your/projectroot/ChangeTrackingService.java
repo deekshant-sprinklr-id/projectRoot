@@ -63,7 +63,6 @@ public final class ChangeTrackingService {
      * @param maxDepth The maximum depth for method usage search.
      */
     public void trackChangesAndRunTests(int maxDepth) {
-        System.out.println("Beginning: " + maxDepth);//DEBUG
         final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
 
         // Get the list of local changes
@@ -76,7 +75,6 @@ public final class ChangeTrackingService {
                 if (file != null) {
                     identifyChangedMethodsByComparing(file);
                 } else {
-                    System.out.println("File is null");//DEBUG
                     logger.info("File is null");
                 }
             }
@@ -96,7 +94,6 @@ public final class ChangeTrackingService {
      */
     private void identifyChangedMethodsByComparing(VirtualFile file) {
         final String sourceFilePath = file.getPath();
-        System.out.println("Changed Class: " + sourceFilePath);
 
         String className = CustomUtil.getClassNameFromFilePath(sourceFilePath);
 
@@ -123,7 +120,6 @@ public final class ChangeTrackingService {
             return contentRetriever.retrieve(file);
         } catch (IOException | RuntimeException e) {
             String message = e instanceof IOException ? "OLD" : "NEW";
-            System.out.println("Cannot get " + message + " file content");
             logger.info("Cannot get " + message + " file content");
             return null;
         }
@@ -180,8 +176,6 @@ public final class ChangeTrackingService {
 
         String relativeFilePath = CustomUtil.getRelativeFilePath(file, projectBasePath);
         File repoDir = new File(projectBasePath);
-
-        System.out.println(repoDir);
 
         try (Git git = Git.open(repoDir)) {
             Repository repository = git.getRepository();
@@ -301,11 +295,11 @@ public final class ChangeTrackingService {
         for (MethodDeclaration newMethod : newMethods) {
             String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), className);
             if (!oldMethodsMap.containsKey(methodSignature)) {
-                addMethodChange("added", methodSignature);
+                CHANGES.add(methodSignature);
             } else {
                 MethodDeclaration oldMethod = oldMethodsMap.get(methodSignature);
                 if (!oldMethod.getBody().equals(newMethod.getBody())) {
-                    addMethodChange("changed", methodSignature);
+                    CHANGES.add(methodSignature);
                 }
                 oldMethodsMap.remove(methodSignature);
             }
@@ -360,18 +354,6 @@ public final class ChangeTrackingService {
     }
 
     /**
-     * Adds a method change to the changes list and logs it.
-     *
-     * @param changeType      The type of change (added or changed).
-     * @param methodSignature The signature of the changed method.
-     */
-    private void addMethodChange(String changeType, String methodSignature) {
-        //DEBUG
-        System.out.println("Method " + changeType + ": " + methodSignature);
-        CHANGES.add(methodSignature);
-    }
-
-    /**
      * Visitor class for extracting method declarations from a compilation unit.
      */
     private static class MethodVisitor extends VoidVisitorAdapter<List<MethodDeclaration>> {
@@ -392,13 +374,7 @@ public final class ChangeTrackingService {
      * @param maxDepth The maximum depth for method usage search.
      */
     private void findMethodUsages(int maxDepth) {
-        //DEBUG
-        for (String c : CHANGES) {
-            System.out.println(c);
-        }
-
         for (String change : CHANGES) {
-            System.out.println(change + " is Called"); //DEBUG
             findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
         }
     }
@@ -433,7 +409,7 @@ public final class ChangeTrackingService {
 
                 Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
                 for (PsiReference reference : references) {
-                    handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
+                    handleMethodReference(reference, className, maxDepth, currentDepth, currentPath);
                 }
             }
         }
@@ -455,7 +431,6 @@ public final class ChangeTrackingService {
             return true;
         }
         if (currentPath.contains(callingMethod)) {
-            System.out.println("Cycle detected at: " + callingMethod);//DEBUG
             return true;
         }
         return AFFECTED_METHODS.containsKey(callingMethod) && AFFECTED_METHODS.get(callingMethod) <= currentDepth;
@@ -478,14 +453,13 @@ public final class ChangeTrackingService {
     /**
      * Handles a method reference by finding the containing method and recursively finding its usages.
      *
-     * @param callingMethod The method whose usages are being searched.
      * @param reference     The reference to the method.
      * @param className     The name of the class containing the method.
      * @param maxDepth      The maximum depth for the search.
      * @param currentDepth  The current depth of the search.
      * @param currentPath   The current path of visited methods to detect cycles.
      */
-    private void handleMethodReference(String callingMethod, PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
+    private void handleMethodReference(PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
         PsiElement element = reference.getElement();
         String containingClass = CustomUtil.findDeclaringClassName(element);
         if (containingClass != null && Objects.equals(containingClass, className)) {
@@ -493,7 +467,6 @@ public final class ChangeTrackingService {
             if (containingMethod != null) {
                 String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
                 String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
-                System.out.println("Method " + callingMethod + " is used in: " + methodSignature);//DEBUG
                 findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
             }
         }
@@ -504,13 +477,7 @@ public final class ChangeTrackingService {
      * Runs the Tests of both Private and Public Methods
      */
     private void runningPrivateAndPublicMethodsTests(){
-        //DEBUG
-        System.out.println(AFFECTED_METHODS);
-        System.out.println(PRIVATE_METHODS);
-        System.out.println(PUBLIC_METHOD_TESTS);
-
         Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
-        System.out.println(privateUsages);
 
         Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
         allTestMethods.addAll(privateUsages);
