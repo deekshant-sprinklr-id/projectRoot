@@ -25,35 +25,30 @@ public class RunChangeTrackingAction extends AnAction {
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
         if (project != null) {
-            String input = promptForDepthLevel(project);
-            if (input != null && !input.isEmpty()) {
-                try {
-                    int depth = Integer.parseInt(input);
-                    trackChangesAndNotify(project, depth);
-                } catch (NumberFormatException ex) {
-                    showErrorDialog(project, "Please enter a valid number for depth level.", "Invalid Input");
+            CustomDialog dialog = new CustomDialog();
+            if (dialog.showAndGet()) {
+                String input = dialog.getDepth();
+                boolean checkPrevious = dialog.isCheckPreviousCommit();
+
+                if (input != null && !input.isEmpty()) {
+                    try {
+                        int depth = Integer.parseInt(input);
+                        synchronized (this){
+                            trackChangesAndNotify(project, depth);
+                        }
+                        if (checkPrevious) {
+                            checkPreviousCommitTests(project);
+                        }
+                    } catch (NumberFormatException ex) {
+                        showErrorDialog(project, "Please enter a valid number for depth level.", "Invalid Input");
+                    }
+                } else {
+                    showErrorDialog(project, "Depth level input is required.", "Input Required");
                 }
-            } else {
-                showErrorDialog(project, "Depth level input is required.", "Input Required");
             }
         } else {
             System.out.println("Inside actionPerformed, project is null");
         }
-    }
-
-    /**
-     * Prompts the user to enter the depth level for method usage search.
-     *
-     * @param project The IntelliJ project.
-     * @return The user input as a string.
-     */
-    private String promptForDepthLevel(Project project) {
-        return Messages.showInputDialog(
-                project,
-                "Enter the depth level for the method usage search:",
-                "Input Depth Level",
-                Messages.getQuestionIcon()
-        );
     }
 
     /**
@@ -65,6 +60,12 @@ public class RunChangeTrackingAction extends AnAction {
     private void trackChangesAndNotify(Project project, int depth) {
         final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
         changeTrackingService.trackChangesAndRunTests(depth);
+        displayNotification(project);
+    }
+
+    private void checkPreviousCommitTests(Project project) {
+        final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
+        changeTrackingService.runTestsOnHeadFiles();
         displayNotification(project);
     }
 

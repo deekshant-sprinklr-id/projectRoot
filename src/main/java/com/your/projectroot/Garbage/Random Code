@@ -1473,3 +1473,348 @@ IMPORTANT!!! IntellijTestRunnerCode -
 //    }
 //}
 
+//package com.your.projectroot;
+//
+//import com.github.javaparser.JavaParser;
+//import com.github.javaparser.ast.CompilationUnit;
+//import com.github.javaparser.ast.body.MethodDeclaration;
+//import com.github.javaparser.ast.visitor.VoidVisitorAdapter;
+//import com.intellij.openapi.components.Service;
+//import com.intellij.openapi.diagnostic.Logger;
+//import com.intellij.openapi.progress.EmptyProgressIndicator;
+//import com.intellij.openapi.progress.ProgressManager;
+//import com.intellij.openapi.project.Project;
+//import com.intellij.openapi.vcs.changes.Change;
+//import com.intellij.openapi.vcs.changes.ChangeListManager;
+//import com.intellij.openapi.vcs.changes.LocalChangeList;
+//import com.intellij.openapi.vfs.VirtualFile;
+//import com.intellij.psi.PsiElement;
+//import com.intellij.psi.PsiMethod;
+//import com.intellij.psi.PsiModifier;
+//import com.intellij.psi.PsiReference;
+//import com.intellij.psi.search.GlobalSearchScope;
+//import com.intellij.psi.search.PsiShortNamesCache;
+//import com.intellij.psi.search.searches.ReferencesSearch;
+//import com.intellij.psi.util.PsiTreeUtil;
+//import org.eclipse.jgit.api.Git;
+//import org.eclipse.jgit.lib.ObjectId;
+//import org.eclipse.jgit.lib.ObjectReader;
+//import org.eclipse.jgit.lib.Repository;
+//import org.eclipse.jgit.revwalk.RevCommit;
+//import org.eclipse.jgit.revwalk.RevWalk;
+//import org.eclipse.jgit.treewalk.TreeWalk;
+//import org.eclipse.jgit.treewalk.filter.PathFilter;
+//
+//import java.io.ByteArrayInputStream;
+//import java.io.ByteArrayOutputStream;
+//import java.io.File;
+//import java.io.IOException;
+//import java.nio.charset.StandardCharsets;
+//import java.util.*;
+//import java.util.concurrent.CompletableFuture;
+//import java.util.concurrent.ExecutorService;
+//import java.util.concurrent.Executors;
+//
+//@Service(Service.Level.PROJECT)
+//public final class ChangeTrackingService {
+//
+//    private static final Logger logger = Logger.getInstance(ChangeTrackingService.class);
+//    private final Project project;
+//    public static final List<String> CHANGES = Collections.synchronizedList(new ArrayList<>());
+//    private final Map<String, Integer> AFFECTED_METHODS = Collections.synchronizedMap(new HashMap<>());
+//    private final Set<PsiMethod> PRIVATE_METHODS = Collections.synchronizedSet(new HashSet<>());
+//    private final Set<PsiMethod> PUBLIC_METHOD_TESTS = Collections.synchronizedSet(new HashSet<>());
+//    private final ExecutorService executor = Executors.newFixedThreadPool(4);
+//
+//    public ChangeTrackingService(Project project) {
+//        this.project = project;
+//    }
+//
+//    public void trackChangesAndRunTests(int maxDepth) {
+//        System.out.println("Tracking changes with max depth: " + maxDepth);
+//        final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
+//        final List<LocalChangeList> changes = changeListManager.getChangeLists();
+//
+//        List<CompletableFuture<Void>> futures = new ArrayList<>();
+//
+//        for (LocalChangeList changeList : changes) {
+//            for (Change change : changeList.getChanges()) {
+//                VirtualFile file = change.getVirtualFile();
+//                if (file != null) {
+//                    futures.add(CompletableFuture.runAsync(() -> identifyChangedMethodsByComparing(file), executor));
+//                } else {
+//                    System.out.println("File is null for change: " + change);
+//                }
+//            }
+//        }
+//
+//        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+//                .thenRunAsync(() -> runWithProgress(() -> findMethodUsages(maxDepth)), executor)
+//                .thenRunAsync(this::runningPrivateAndPublicMethodsTests, executor)
+//                .exceptionally(ex -> {
+//                    logger.error("Error during change tracking and test running", ex);
+//                    return null;
+//                });
+//    }
+//
+//    private void identifyChangedMethodsByComparing(VirtualFile file) {
+//        final String sourceFilePath = file.getPath();
+//        System.out.println("Changed Class: " + sourceFilePath);
+//
+//        String className = CustomUtil.getClassNameFromFilePath(sourceFilePath);
+//
+//        String oldContent = getFileContent(file, this::getOldFileContent);
+//        String newContent = getFileContent(file, this::getNewFileContent);
+//
+//        if (oldContent != null) {
+//            compareFileContents(oldContent, newContent, className);
+//        } else {
+//            System.out.println("Old file content is null for: " + sourceFilePath);
+//        }
+//    }
+//
+//    private String getFileContent(VirtualFile file, ContentRetriever contentRetriever) {
+//        try {
+//            return contentRetriever.retrieve(file);
+//        } catch (IOException | RuntimeException e) {
+//            logger.error("Error retrieving file content for " + file.getPath(), e);
+//            return null;
+//        }
+//    }
+//
+//    private void compareFileContents(String oldContent, String newContent, String className) {
+//        JavaParser parser = new JavaParser();
+//        CompilationUnit oldCompilationUnit = parseContent(parser, oldContent);
+//        CompilationUnit newCompilationUnit = parseContent(parser, newContent);
+//
+//        if (oldCompilationUnit == null || newCompilationUnit == null) {
+//            System.out.println("Compilation units are null for class: " + className);
+//            return;
+//        }
+//
+//        Map<String, MethodDeclaration> oldMethodsMap = extractMethodsToMap(oldCompilationUnit, className);
+//        List<MethodDeclaration> newMethods = extractMethods(newCompilationUnit);
+//        for (MethodDeclaration newMethod : newMethods) {
+//            String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), className);
+//            if (!oldMethodsMap.containsKey(methodSignature)) {
+//                addMethodChange("added", methodSignature);
+//            } else {
+//                MethodDeclaration oldMethod = oldMethodsMap.get(methodSignature);
+//                if (!oldMethod.getBody().equals(newMethod.getBody())) {
+//                    addMethodChange("changed", methodSignature);
+//                }
+//                oldMethodsMap.remove(methodSignature);
+//            }
+//        }
+//
+//        CHANGES.addAll(oldMethodsMap.keySet());
+//    }
+//
+//    private CompilationUnit parseContent(JavaParser parser, String content) {
+//        return parser.parse(new ByteArrayInputStream(content.getBytes())).getResult().orElse(null);
+//    }
+//
+//    private String getOldFileContent(VirtualFile file) throws IOException {
+//        String projectBasePath = project.getBasePath();
+//        if (projectBasePath == null) {
+//            System.out.println("Project's base path is null");
+//            throw new IOException("Project's base path is null");
+//        }
+//
+//        String relativeFilePath = CustomUtil.getRelativeFilePath(file, projectBasePath);
+//        File repoDir = new File(projectBasePath);
+//
+//        try (Git git = Git.open(repoDir)) {
+//            Repository repository = git.getRepository();
+//            ObjectId headId = resolveHead(repository);
+//            return getFileContentFromHeadCommit(repository, headId, relativeFilePath);
+//        }
+//    }
+//
+//    private ObjectId resolveHead(Repository repository) throws IOException {
+//        ObjectId headId = repository.resolve("HEAD");
+//        if (headId == null) {
+//            throw new IOException("Couldn't resolve HEAD");
+//        }
+//        return headId;
+//    }
+//
+//    private String getFileContentFromHeadCommit(Repository repository, ObjectId headId, String relativeFilePath) throws IOException {
+//        try (RevWalk revWalk = new RevWalk(repository)) {
+//            RevCommit headCommit = revWalk.parseCommit(headId);
+//            ObjectId treeId = headCommit.getTree().getId();
+//
+//            return findFileContentInTree(repository, treeId, relativeFilePath);
+//        }
+//    }
+//
+//    private String findFileContentInTree(Repository repository, ObjectId treeId, String relativeFilePath) throws IOException {
+//        try (TreeWalk treeWalk = new TreeWalk(repository)) {
+//            treeWalk.addTree(treeId);
+//            treeWalk.setRecursive(true);
+//            treeWalk.setFilter(PathFilter.create(relativeFilePath));
+//
+//            while (treeWalk.next()) {
+//                String path = treeWalk.getPathString();
+//                if (path.equals(relativeFilePath)) {
+//                    return getFileContentFromObjectId(repository, treeWalk.getObjectId(0));
+//                }
+//            }
+//
+//            throw new IOException("File not found in the HEAD commit: " + relativeFilePath);
+//        }
+//    }
+//
+//    private String getFileContentFromObjectId(Repository repository, ObjectId objectId) throws IOException {
+//        try (ObjectReader objectReader = repository.newObjectReader();
+//             ByteArrayOutputStream outputStream = new ByteArrayOutputStream()) {
+//            objectReader.open(objectId).copyTo(outputStream);
+//            return outputStream.toString(StandardCharsets.UTF_8);
+//        }
+//    }
+//
+//    private String getNewFileContent(VirtualFile file) {
+//        try {
+//            byte[] content = file.contentsToByteArray();
+//            return new String(content);
+//        } catch (IOException e) {
+//            System.out.println("Error reading new file content");
+//
+//            throw new RuntimeException("Error reading new file content", e);
+//        }
+//    }
+//
+//    private Map<String, MethodDeclaration> extractMethodsToMap(CompilationUnit compilationUnit, String className) {
+//        List<MethodDeclaration> methods = extractMethods(compilationUnit);
+//        Map<String, MethodDeclaration> methodsMap = new HashMap<>();
+//        for (MethodDeclaration method : methods) {
+//            String methodSignature = CustomUtil.getSignOfMethodDeclaration(method.getSignature(), className);
+//            methodsMap.put(methodSignature, method);
+//        }
+//        return methodsMap;
+//    }
+//
+//    private List<MethodDeclaration> extractMethods(CompilationUnit compilationUnit) {
+//        List<MethodDeclaration> methods = new ArrayList<>();
+//        compilationUnit.accept(new MethodVisitor(), methods);
+//        return methods;
+//    }
+//
+//    private void addMethodChange(String changeType, String methodSignature) {
+//        System.out.println("Method " + changeType + ": " + methodSignature);
+//        CHANGES.add(methodSignature);
+//    }
+//
+//    private static class MethodVisitor extends VoidVisitorAdapter<List<MethodDeclaration>> {
+//        @Override
+//        public void visit(MethodDeclaration methodDeclaration, List<MethodDeclaration> collector) {
+//            super.visit(methodDeclaration, collector);
+//            collector.add(methodDeclaration);
+//        }
+//    }
+//
+//    private void findMethodUsages(int maxDepth) {
+////        List<CompletableFuture<Void>> futures = new ArrayList<>();
+//        System.out.println("called");
+//        for (String change : CHANGES) {
+//            System.out.println("calling"+change);
+//            findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
+//            //futures.add(CompletableFuture.runAsync(() -> runWithProgress(() -> ApplicationManager.getApplication().runReadAction(() -> findUsagesForMethod(change, maxDepth, 0, new HashSet<>())))));
+//        }
+//
+//        //CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+//    }
+//
+//    private void findUsagesForMethod(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
+//        if (shouldStopSearch(callingMethod, maxDepth, currentDepth, currentPath)) {
+//            return;
+//        }
+//        System.out.println("here");
+//        currentPath.add(callingMethod);
+//        AFFECTED_METHODS.put(callingMethod, currentDepth);
+//
+//        GlobalSearchScope scope = GlobalSearchScope.projectScope(project);
+//        PsiShortNamesCache shortNamesCache = PsiShortNamesCache.getInstance(project);
+//
+//        String methodName = CustomUtil.extractMethodName(callingMethod);
+//        String className = CustomUtil.extractClassName(callingMethod);
+//        String[] parameterTypes = CustomUtil.extractParameterTypes(callingMethod);
+//        PsiMethod[] psiMethods = shortNamesCache.getMethodsByName(methodName, scope);
+//
+//        for (PsiMethod method : psiMethods) {
+//            System.out.println("here2");
+//            if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
+//                addMethodToRelevantSets(method);
+//                System.out.println("here3");
+//                Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
+//                for (PsiReference reference : references) {
+//                    System.out.println("here4");
+//                    PsiElement element = reference.getElement();
+//                    String containingClass = CustomUtil.findDeclaringClassName(element);
+//                    System.out.println("here5");
+//                    if (containingClass != null && Objects.equals(containingClass, className)) {
+//                        System.out.println("here6");
+//                        PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
+//                        if (containingMethod != null) {
+//                            String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
+//                            String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
+//                            System.out.println("Method " + callingMethod + " is used in: " + methodSignature);
+//                            findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
+//                        }
+//                    }
+//                }
+//            }
+//        }
+//
+//        currentPath.remove(callingMethod);
+//    }
+//
+//    private boolean shouldStopSearch(String callingMethod, int maxDepth, int currentDepth, Set<String> currentPath) {
+//        if (currentDepth > maxDepth) {
+//            return true;
+//        }
+//        if (currentPath.contains(callingMethod)) {
+//            System.out.println("Cycle detected at: " + callingMethod);
+//            return true;
+//        }
+//        return AFFECTED_METHODS.containsKey(callingMethod) && AFFECTED_METHODS.get(callingMethod) <= currentDepth;
+//    }
+//
+//    private void addMethodToRelevantSets(PsiMethod method) {
+//        if (method.hasModifierProperty(PsiModifier.PRIVATE)) {
+//            PRIVATE_METHODS.add(method);
+//        }
+//        if (CustomUtil.isTestMethod(method)) {
+//            PUBLIC_METHOD_TESTS.add(method);
+//        }
+//    }
+//
+//
+//    private void runningPrivateAndPublicMethodsTests() {
+//        System.out.println("Running tests for affected methods");
+//
+//        Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
+//        System.out.println("Private method usages: " + privateUsages);
+//
+//        Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
+//        allTestMethods.addAll(privateUsages);
+//
+//        IntelliJTestRunner.runTests(project, allTestMethods);
+//    }
+//
+//    private void runWithProgress(Runnable task) {
+//        ProgressManager.getInstance().runProcess(() -> {
+//            try {
+//                task.run();
+//            } catch (Exception e) {
+//                logger.error("Error during task execution with progress indicator", e);
+//            }
+//        }, new EmptyProgressIndicator());
+//    }
+//
+//    @FunctionalInterface
+//    private interface ContentRetriever {
+//        String retrieve(VirtualFile file) throws IOException;
+//    }
+//}
+

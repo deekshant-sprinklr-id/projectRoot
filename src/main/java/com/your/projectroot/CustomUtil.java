@@ -1,9 +1,14 @@
 package com.your.projectroot;
 
-import com.github.javaparser.ast.body.CallableDeclaration;
+import com.github.javaparser.ast.NodeList;
+import com.github.javaparser.ast.body.MethodDeclaration;
+import com.github.javaparser.ast.body.Parameter;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Utility class for various operations related to method signatures, class names, and PsiElements.
@@ -13,12 +18,23 @@ public class CustomUtil {
     /**
      * Generates the signature of a method declaration given its signature and class name.
      *
-     * @param signature The signature of the method.
+     * @param method The method.
      * @param className The name of the class declaring the method.
      * @return The full signature of the method in the format "className.signature".
      */
-    public static String getSignOfMethodDeclaration(CallableDeclaration.Signature signature, String className) {
-        return className + "." + signature.asString();
+    public static String getSignOfMethodDeclaration(MethodDeclaration method, String className) {
+        NodeList<Parameter> list=method.getParameters();
+        StringBuilder parameterList= new StringBuilder("(");
+        for(int i=0;i<list.size();i++){
+            Parameter para = list.get(i);
+            parameterList.append(para.getType().asString());
+            if(i!= list.size()-1){
+                parameterList.append(',');
+            }
+        }
+        parameterList.append(')');
+        //String parameterList= '('+str.substring(start+1,end)+')';
+        return className + "." + method.getName().asString()+parameterList;
     }
 
     /**
@@ -34,7 +50,7 @@ public class CustomUtil {
             if (resolvedElement != null) {
                 PsiClass declaringClass = PsiTreeUtil.getParentOfType(resolvedElement, PsiClass.class);
                 if (declaringClass != null) {
-                    return declaringClass.getQualifiedName();
+                    return declaringClass.getName();
                 }
             }
         }
@@ -86,17 +102,44 @@ public class CustomUtil {
     public static String[] extractParameterTypes(String methodSignature) {
         int startIndex = methodSignature.indexOf('(');
         int endIndex = methodSignature.indexOf(')');
-        if (startIndex != -1 && endIndex != -1) {
-            String params = methodSignature.substring(startIndex + 1, endIndex);
-            return params.isEmpty() ? new String[0] : params.split(",\\s*");
+        if (startIndex == -1 || endIndex == -1) {
+            return new String[0];  // Fallback to no parameters if parsing fails
         }
-        return new String[0];  // Fallback to no parameters if parsing fails
+
+        String params = methodSignature.substring(startIndex + 1, endIndex);
+        if (params.isEmpty()) {
+            return new String[0];  // No parameters
+        }
+
+        List<String> paramList = new ArrayList<>();
+        StringBuilder currentParam = new StringBuilder();
+        int angleBracketDepth = 0;
+
+        for (char ch : params.toCharArray()) {
+            if (ch == '<') {
+                angleBracketDepth++;
+            } else if (ch == '>') {
+                angleBracketDepth--;
+            } else if (ch == ',' && angleBracketDepth == 0) {
+                paramList.add(currentParam.toString().trim());
+                currentParam.setLength(0);
+                continue;
+            }
+            currentParam.append(ch);
+        }
+
+        if (!currentParam.isEmpty()) {
+            paramList.add(currentParam.toString().trim());
+        }
+
+        return paramList.toArray(new String[0]);
     }
+
 
     /**
      * Checks if the parameter types of a given PsiMethod match the specified parameter types.
      *
-     * @param method         The PsiMethod to be checked.
+     * @param method The PsiMethod to be checked.
      * @param parameterTypes The expected parameter types.
      * @return True if the parameter types match, false otherwise.
      */
@@ -106,7 +149,7 @@ public class CustomUtil {
             return false;
         }
         for (int i = 0; i < parameters.length; i++) {
-            if (!parameters[i].getType().getPresentableText().equals(parameterTypes[i])) {
+            if (!parameters[i].getType().getPresentableText().replaceAll("\\s+","").equals(parameterTypes[i].replaceAll("\\s+",""))) {
                 return false;
             }
         }

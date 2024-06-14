@@ -10,9 +10,11 @@ import com.intellij.execution.junit.JUnitConfiguration;
 import com.intellij.execution.junit.JUnitConfigurationType;
 import com.intellij.execution.runners.ExecutionUtil;
 import com.intellij.execution.testframework.TestSearchScope;
+import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiClass;
 import com.intellij.psi.PsiMethod;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.LinkedHashSet;
 import java.util.Set;
@@ -28,25 +30,44 @@ public class IntelliJTestRunner {
      * @param project     The IntelliJ project in which to run the tests.
      * @param testMethods The set of test methods to be run.
      */
-    public static void runTests(Project project, Set<PsiMethod> testMethods) {
+    public static void runTests(Project project, Set<PsiMethod> testMethods, @Nullable Runnable afterTestRun) {
+        runTestsWithConfiguration(project, testMethods, "GlobalTestRunConfiguration",afterTestRun);
+    }
+
+    /**
+     * Runs the specified set of JUnit test methods within the given IntelliJ project.
+     *
+     * @param project     The IntelliJ project in which to run the tests.
+     * @param testMethods The set of test methods to be run.
+     */
+    public static void runTestsForPrevious(Project project, Set<PsiMethod> testMethods,@Nullable Runnable afterTestRun) {
+        runTestsWithConfiguration(project, testMethods, "TestConfigForPrevious",afterTestRun);
+    }
+
+    private static void runTestsWithConfiguration(Project project, Set<PsiMethod> testMethods, String configName,@Nullable Runnable afterTestRun) {
         RunManager runManager = RunManager.getInstance(project);
         ConfigurationType junitConfigType = ConfigurationTypeUtil.findConfigurationType(JUnitConfigurationType.class);
         ConfigurationFactory junitConfigFactory = junitConfigType.getConfigurationFactories()[0];
 
-        RunnerAndConfigurationSettings settings = runManager.createConfiguration("GlobalTestRunConfiguration", junitConfigFactory);
+        RunnerAndConfigurationSettings settings = runManager.createConfiguration(configName + System.currentTimeMillis(), junitConfigFactory);
         JUnitConfiguration configuration = (JUnitConfiguration) settings.getConfiguration();
 
-        setupTestConfigurationData(configuration, testMethods);
+        ApplicationManager.getApplication().runReadAction(() -> {
+            setupTestConfigurationData(configuration, testMethods);
+        });
 
-        // Ensure working directory is set correctly
         configuration.setWorkingDirectory(project.getBasePath());
 
-        // Add and select the configuration
         runManager.addConfiguration(settings);
         runManager.setSelectedConfiguration(settings);
 
-        // Run the configuration automatically
-        ExecutionUtil.runConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance());
+        // Run the configuration and invoke callback after completion
+        ApplicationManager.getApplication().invokeLater(() ->{
+            ExecutionUtil.runConfiguration(settings, DefaultRunExecutor.getRunExecutorInstance());
+            if(afterTestRun!=null){
+                afterTestRun.run();
+            }
+        });
     }
 
     /**
@@ -60,10 +81,6 @@ public class IntelliJTestRunner {
         data.TEST_OBJECT = JUnitConfiguration.TEST_PATTERN;
 
         LinkedHashSet<String> methodPatterns = collectMethodPatterns(testMethods);
-
-        if (methodPatterns.isEmpty()) {
-            throw new IllegalArgumentException("No valid test methods found to run.");
-        }
 
         data.setPatterns(methodPatterns);
         data.setScope(TestSearchScope.WHOLE_PROJECT);
@@ -91,5 +108,4 @@ public class IntelliJTestRunner {
         }
         return methodPatterns;
     }
-
 }

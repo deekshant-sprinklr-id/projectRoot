@@ -12,12 +12,16 @@ import com.intellij.openapi.vcs.changes.Change;
 import com.intellij.openapi.vcs.changes.ChangeListManager;
 import com.intellij.openapi.vcs.changes.LocalChangeList;
 import com.intellij.openapi.vfs.VirtualFile;
-import com.intellij.psi.*;
+import com.intellij.psi.PsiElement;
+import com.intellij.psi.PsiMethod;
+import com.intellij.psi.PsiModifier;
+import com.intellij.psi.PsiReference;
 import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.eclipse.jgit.api.Git;
+import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.Repository;
@@ -32,6 +36,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CountDownLatch;
 
 /**
  * This class contains the main logic of the plugin for tracking code changes and running relevant tests.
@@ -43,10 +48,11 @@ public final class ChangeTrackingService {
 
     private static final Logger logger = Logger.getInstance(ChangeTrackingService.class);
     private final Project project;
-    public static final List<String> CHANGES = new ArrayList<>();
+    private final List<String> CHANGES = new ArrayList<>();
     private final Map<String, Integer> AFFECTED_METHODS = new HashMap<>();
     private final Set<PsiMethod> PRIVATE_METHODS = new HashSet<>();
     private final Set<PsiMethod> PUBLIC_METHOD_TESTS = new HashSet<>();
+    private final Set<PsiMethod> ALL_AFFECTED_TESTS = new HashSet<>();
 
     /**
      * Constructs a ChangeTrackingService instance for the specified project.
@@ -85,8 +91,10 @@ public final class ChangeTrackingService {
         //DFS Traversal to get Usages
         findMethodUsages(maxDepth);
 
-        //Running the Tests
-        runningPrivateAndPublicMethodsTests();
+        //gettingAfftectedTests();
+
+        //runningPrivateAndPublicMethodsTests();
+        runTestsOnCurrentState();
     }
 
     /**
@@ -107,6 +115,7 @@ public final class ChangeTrackingService {
         if (oldContent != null) {
             compareFileContents(oldContent, newContent, className);
         } else {
+            System.out.println("Old File is null");
             logger.info("Past Commit Content is null");
         }
     }
@@ -138,6 +147,7 @@ public final class ChangeTrackingService {
      */
     private void compareFileContents(String oldContent, String newContent, String className) {
         JavaParser parser = new JavaParser();
+
         CompilationUnit oldCompilationUnit = parseContent(parser, oldContent);
         CompilationUnit newCompilationUnit = parseContent(parser, newContent);
 
@@ -297,9 +307,8 @@ public final class ChangeTrackingService {
 
         Map<String, MethodDeclaration> oldMethodsMap = extractMethodsToMap(oldCompilationUnit, className);
         List<MethodDeclaration> newMethods = extractMethods(newCompilationUnit);
-
         for (MethodDeclaration newMethod : newMethods) {
-            String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod.getSignature(), className);
+            String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod, className);
             if (!oldMethodsMap.containsKey(methodSignature)) {
                 addMethodChange("added", methodSignature);
             } else {
@@ -341,7 +350,7 @@ public final class ChangeTrackingService {
         List<MethodDeclaration> methods = extractMethods(compilationUnit);
         Map<String, MethodDeclaration> methodsMap = new HashMap<>();
         for (MethodDeclaration method : methods) {
-            String methodSignature = CustomUtil.getSignOfMethodDeclaration(method.getSignature(), className);
+            String methodSignature = CustomUtil.getSignOfMethodDeclaration(method, className);
             methodsMap.put(methodSignature, method);
         }
         return methodsMap;
@@ -426,14 +435,12 @@ public final class ChangeTrackingService {
         String className = CustomUtil.extractClassName(callingMethod);
         String[] parameterTypes = CustomUtil.extractParameterTypes(callingMethod);
         PsiMethod[] psiMethods = shortNamesCache.getMethodsByName(methodName, scope);
-
         for (PsiMethod method : psiMethods) {
             if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
                 addMethodToRelevantSets(method);
-
                 Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
                 for (PsiReference reference : references) {
-                    handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
+                    handleMethodReference(callingMethod,reference,className,maxDepth,currentDepth,currentPath);
                 }
             }
         }
@@ -491,7 +498,7 @@ public final class ChangeTrackingService {
         if (containingClass != null && Objects.equals(containingClass, className)) {
             PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (containingMethod != null) {
-                String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getQualifiedName();
+                String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getName();
                 String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
                 System.out.println("Method " + callingMethod + " is used in: " + methodSignature);//DEBUG
                 findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
@@ -499,12 +506,8 @@ public final class ChangeTrackingService {
         }
     }
 
-    /**
-     * Checks The Usages of Private Methods and
-     * Runs the Tests of both Private and Public Methods
-     */
-    private void runningPrivateAndPublicMethodsTests(){
-        //DEBUG
+
+    private void gettingAfftectedTests(){
         System.out.println(AFFECTED_METHODS);
         System.out.println(PRIVATE_METHODS);
         System.out.println(PUBLIC_METHOD_TESTS);
@@ -512,9 +515,68 @@ public final class ChangeTrackingService {
         Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
         System.out.println(privateUsages);
 
-        Set<PsiMethod> allTestMethods = new HashSet<>(PUBLIC_METHOD_TESTS);
-        allTestMethods.addAll(privateUsages);
-
-        IntelliJTestRunner.runTests(project, allTestMethods);
+        ALL_AFFECTED_TESTS.addAll(PUBLIC_METHOD_TESTS);
+        ALL_AFFECTED_TESTS.addAll(privateUsages);
     }
+
+    /**
+     * Checks The Usages of Private Methods and
+     * Runs the Tests of both Private and Public Methods
+     *
+     */
+//    private void runningPrivateAndPublicMethodsTests(){
+//        //DEBUG
+//        gettingAfftectedTests();
+//        IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS,null);
+//    }
+
+    public void runTestsOnHeadFiles() {
+        try (Git git = Git.open(new File(Objects.requireNonNull(project.getBasePath())))) {
+            String stashRef = stashChanges(git);
+            CountDownLatch latch = new CountDownLatch(1);
+            // Run tests on HEAD commit files
+            runTestsOnHeadCommitFiles(() -> {
+                // Apply stashed changes back
+                try {
+                    popStashedChanges(git, stashRef);
+                    latch.countDown();
+                } catch (GitAPIException e) {
+                    logger.error("Error during popping stashed changes", e);
+                }
+            });
+            latch.await();
+        } catch (Exception e) {
+            logger.error("Error during running tests on HEAD commit files", e);
+        }
+    }
+
+    private String stashChanges(Git git) throws GitAPIException {
+        return git.stashCreate().call().getName();
+    }
+
+    private void popStashedChanges(Git git, String stashRef) throws GitAPIException {
+        git.stashApply().setStashRef(stashRef).call();
+    }
+
+    private void runTestsOnHeadCommitFiles(Runnable afterTestRun) {
+        gettingAfftectedTests();
+        if (!ALL_AFFECTED_TESTS.isEmpty()) {
+            IntelliJTestRunner.runTestsForPrevious(project, ALL_AFFECTED_TESTS, afterTestRun);
+        } else {
+            System.out.println("No affected tests found to run on the HEAD commit files.");
+            afterTestRun.run();
+        }
+    }
+
+    private void runTestsOnCurrentState() {
+        gettingAfftectedTests();
+        if (!ALL_AFFECTED_TESTS.isEmpty()) {
+            IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS, null);
+        } else {
+            System.out.println("No affected tests found to run on the current state.");
+        }
+    }
+
+
 }
+
