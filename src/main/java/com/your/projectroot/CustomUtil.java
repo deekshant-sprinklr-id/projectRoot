@@ -203,4 +203,15 @@ public class CustomUtil {
         String absoluteFilePath = file.getPath();
         return absoluteFilePath.substring(projectBasePath.length() + 1);
     }
+
+    public static void sleepForSomeTime(long milliseconds) {
+        try {
+            // Pause the execution for the specified time
+            Thread.sleep(milliseconds);
+        } catch (InterruptedException e) {
+            // Handle the exception if the thread is interrupted
+            System.err.println("Sleep was interrupted");
+            e.printStackTrace();
+        }
+    }
 }

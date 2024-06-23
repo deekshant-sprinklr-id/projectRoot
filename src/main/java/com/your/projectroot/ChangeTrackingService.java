@@ -21,7 +21,6 @@ import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
 import org.eclipse.jgit.api.Git;
-import org.eclipse.jgit.api.errors.GitAPIException;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectReader;
 import org.eclipse.jgit.lib.Repository;
@@ -68,7 +67,7 @@ public final class ChangeTrackingService {
      *
      * @param maxDepth The maximum depth for method usage search.
      */
-    public void trackChangesAndRunTests(int maxDepth) {
+    public synchronized void trackChangesAndRunTests(int maxDepth) {
         System.out.println("Beginning: " + maxDepth);//DEBUG
         final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
 
@@ -91,11 +90,9 @@ public final class ChangeTrackingService {
         //DFS Traversal to get Usages
         findMethodUsages(maxDepth);
 
-        //gettingAfftectedTests();
-
-        //runningPrivateAndPublicMethodsTests();
-        runTestsOnCurrentState();
+        gettingAffectedTests();
     }
+
 
     /**
      * Updates the list of changed methods by comparing the old and new versions of a given file.
@@ -123,7 +120,7 @@ public final class ChangeTrackingService {
     /**
      * Retrieves the content of the file using the provided content retriever.
      *
-     * @param file The virtual file whose content is to be retrieved.
+     * @param file             The virtual file whose content is to be retrieved.
      * @param contentRetriever The content retriever function.
      * @return The content of the file as a string.
      */
@@ -134,7 +131,7 @@ public final class ChangeTrackingService {
             String message = e instanceof IOException ? "OLD" : "NEW";
             System.out.println("Cannot get " + message + " file content");
             logger.info("Cannot get " + message + " file content");
-            return null;
+            return ""; //To handle if a completely new file is added Otherwise put null
         }
     }
 
@@ -143,7 +140,7 @@ public final class ChangeTrackingService {
      *
      * @param oldContent The content of the old version of the file.
      * @param newContent The content of the new version of the file.
-     * @param className The name of the class containing the methods.
+     * @param className  The name of the class containing the methods.
      */
     private void compareFileContents(String oldContent, String newContent, String className) {
         JavaParser parser = new JavaParser();
@@ -158,7 +155,7 @@ public final class ChangeTrackingService {
     /**
      * Parses the content of a file into a CompilationUnit.
      *
-     * @param parser The JavaParser instance.
+     * @param parser  The JavaParser instance.
      * @param content The content to be parsed.
      * @return The parsed CompilationUnit.
      */
@@ -219,8 +216,8 @@ public final class ChangeTrackingService {
     /**
      * Retrieves the content of the specified file from the HEAD commit.
      *
-     * @param repository The repository to retrieve the file content from.
-     * @param headId The ObjectId of the HEAD commit.
+     * @param repository       The repository to retrieve the file content from.
+     * @param headId           The ObjectId of the HEAD commit.
      * @param relativeFilePath The relative path of the file to retrieve.
      * @return The content of the file as a string.
      * @throws IOException If an I/O error occurs or the file is not found.
@@ -237,8 +234,8 @@ public final class ChangeTrackingService {
     /**
      * Finds the content of the specified file in the given tree.
      *
-     * @param repository The repository to search.
-     * @param treeId The ObjectId of the tree to search in.
+     * @param repository       The repository to search.
+     * @param treeId           The ObjectId of the tree to search in.
      * @param relativeFilePath The relative path of the file to find.
      * @return The content of the file as a string.
      * @throws IOException If an I/O error occurs or the file is not found.
@@ -264,7 +261,7 @@ public final class ChangeTrackingService {
      * Retrieves the content of the file represented by the given ObjectId.
      *
      * @param repository The repository to read the file from.
-     * @param objectId The ObjectId of the file.
+     * @param objectId   The ObjectId of the file.
      * @return The content of the file as a string.
      * @throws IOException If an I/O error occurs.
      */
@@ -332,6 +329,7 @@ public final class ChangeTrackingService {
      */
     private void logCompilationUnitStatus(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit) {
         if (oldCompilationUnit == null) {
+            System.out.println("Old Compilation Unit is null");
             logger.info("Getting Old Compilation as null");
         }
         if (newCompilationUnit == null) {
@@ -440,7 +438,7 @@ public final class ChangeTrackingService {
                 addMethodToRelevantSets(method);
                 Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
                 for (PsiReference reference : references) {
-                    handleMethodReference(callingMethod,reference,className,maxDepth,currentDepth,currentPath);
+                    handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
                 }
             }
         }
@@ -495,6 +493,7 @@ public final class ChangeTrackingService {
     private void handleMethodReference(String callingMethod, PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
         PsiElement element = reference.getElement();
         String containingClass = CustomUtil.findDeclaringClassName(element);
+        System.out.println(containingClass+" "+className);
         if (containingClass != null && Objects.equals(containingClass, className)) {
             PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (containingMethod != null) {
@@ -506,8 +505,7 @@ public final class ChangeTrackingService {
         }
     }
 
-
-    private void gettingAfftectedTests(){
+    public void gettingAffectedTests() {
         System.out.println(AFFECTED_METHODS);
         System.out.println(PRIVATE_METHODS);
         System.out.println(PUBLIC_METHOD_TESTS);
@@ -519,64 +517,38 @@ public final class ChangeTrackingService {
         ALL_AFFECTED_TESTS.addAll(privateUsages);
     }
 
-    /**
-     * Checks The Usages of Private Methods and
-     * Runs the Tests of both Private and Public Methods
-     *
-     */
-//    private void runningPrivateAndPublicMethodsTests(){
-//        //DEBUG
-//        gettingAfftectedTests();
-//        IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS,null);
-//    }
-
-    public void runTestsOnHeadFiles() {
-        try (Git git = Git.open(new File(Objects.requireNonNull(project.getBasePath())))) {
-            String stashRef = stashChanges(git);
-            CountDownLatch latch = new CountDownLatch(1);
-            // Run tests on HEAD commit files
-            runTestsOnHeadCommitFiles(() -> {
-                // Apply stashed changes back
-                try {
-                    popStashedChanges(git, stashRef);
-                    latch.countDown();
-                } catch (GitAPIException e) {
-                    logger.error("Error during popping stashed changes", e);
-                }
-            });
-            latch.await();
-        } catch (Exception e) {
-            logger.error("Error during running tests on HEAD commit files", e);
-        }
-    }
-
-    private String stashChanges(Git git) throws GitAPIException {
-        return git.stashCreate().call().getName();
-    }
-
-    private void popStashedChanges(Git git, String stashRef) throws GitAPIException {
-        git.stashApply().setStashRef(stashRef).call();
-    }
-
-    private void runTestsOnHeadCommitFiles(Runnable afterTestRun) {
-        gettingAfftectedTests();
+    public void runTestsOnHeadCommitFiles(CountDownLatch latch) {
+        System.out.println("ALL_AFFECTED SIZE " + ALL_AFFECTED_TESTS.size());
         if (!ALL_AFFECTED_TESTS.isEmpty()) {
-            IntelliJTestRunner.runTestsForPrevious(project, ALL_AFFECTED_TESTS, afterTestRun);
+            System.out.println("Here running test");
+            IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS,latch);
+            System.out.println("Here running end");
         } else {
             System.out.println("No affected tests found to run on the HEAD commit files.");
-            afterTestRun.run();
         }
     }
 
-    private void runTestsOnCurrentState() {
-        gettingAfftectedTests();
+    public void runTestsOnCurrentState(CountDownLatch latch) {
         if (!ALL_AFFECTED_TESTS.isEmpty()) {
-            IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS, null);
+            IntelliJTestRunner.runTestsForPrevious(project, ALL_AFFECTED_TESTS);
         } else {
             System.out.println("No affected tests found to run on the current state.");
         }
     }
 
+    public void runTestsOnHeadFiles(CountDownLatch latch) {
+        try (Git git = Git.open(new File(Objects.requireNonNull(project.getBasePath())))) {
+            git.stashCreate().call();
+            // Run tests on HEAD commit files
+            runTestsOnHeadCommitFiles(latch);
+            // After popping the stash, run the tests on the current state
+
+            System.out.println("Second set of tests completed.");
+
+        } catch (Exception e) {
+            logger.error("Error during running tests on HEAD commit files", e);
+        }
+    }
 
 }
 

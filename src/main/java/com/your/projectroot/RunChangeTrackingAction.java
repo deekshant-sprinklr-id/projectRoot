@@ -3,24 +3,21 @@ package com.your.projectroot;
 import com.intellij.notification.*;
 import com.intellij.openapi.actionSystem.AnAction;
 import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.application.ApplicationManager;
+import com.intellij.openapi.progress.ProgressIndicator;
+import com.intellij.openapi.progress.ProgressManager;
+import com.intellij.openapi.progress.Task;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.ui.Messages;
+import org.eclipse.jgit.api.Git;
 import org.jetbrains.annotations.NotNull;
 
-/**
- * This class represents an action that tracks code changes and runs tests based on user-specified depth levels.
- * When the action is performed, it prompts the user to input the depth level for method usage search,
- * then initiates the change tracking process and displays a notification.
- */
+import java.io.File;
+import java.util.Objects;
+import java.util.concurrent.CountDownLatch;
+
 public class RunChangeTrackingAction extends AnAction {
 
-    /**
-     * This method is responsible for performing the action of the plugin and displaying a notification when the user
-     * calls the plugin. It prompts the user to enter the depth level for method usage search and calls the service
-     * that handles the logic of the plugin.
-     *
-     * @param e The event that triggers the plugin action.
-     */
     @Override
     public void actionPerformed(@NotNull AnActionEvent e) {
         Project project = e.getProject();
@@ -29,16 +26,49 @@ public class RunChangeTrackingAction extends AnAction {
             if (dialog.showAndGet()) {
                 String input = dialog.getDepth();
                 boolean checkPrevious = dialog.isCheckPreviousCommit();
-
                 if (input != null && !input.isEmpty()) {
                     try {
                         int depth = Integer.parseInt(input);
-                        synchronized (this){
-                            trackChangesAndNotify(project, depth);
-                        }
-                        if (checkPrevious) {
-                            checkPreviousCommitTests(project);
-                        }
+
+                        final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
+                        changeTrackingService.trackChangesAndRunTests(depth);
+
+                        CountDownLatch latch = new CountDownLatch(1);
+
+                        Task.Backgroundable task1 = new Task.Backgroundable(project, "Running change tracking") {
+                            @Override
+                            public void run(@NotNull ProgressIndicator indicator) {
+
+                                checkPreviousCommitTests(project, checkPrevious,latch);
+
+                                try {
+                                    // Wait for the latch to be released before continuing
+                                    latch.await();
+                                } catch (InterruptedException ex) {
+                                    Thread.currentThread().interrupt();
+                                    ApplicationManager.getApplication().invokeLater(() -> {
+                                        showErrorDialog(project, "Await interrupted", "Error");
+                                    });
+                                }
+
+                                if(checkPrevious){
+                                    System.out.println("Popping Called");
+                                    ApplicationManager.getApplication().invokeLater(()-> {
+                                        try (Git git = Git.open(new File(Objects.requireNonNull(project.getBasePath())))) {
+                                            git.stashApply().setStashRef("stash@{0}").call();
+                                        } catch (Exception ex) {
+                                            showErrorDialog(project,"Error in Popping","Popping Error");
+                                        }
+                                    });
+
+                                    System.out.println("Popping Ended");
+                                }
+
+                                trackChangesAndNotify(project,e,latch);
+
+                            }
+                        };
+                        ProgressManager.getInstance().run(task1);
                     } catch (NumberFormatException ex) {
                         showErrorDialog(project, "Please enter a valid number for depth level.", "Invalid Input");
                     }
@@ -51,29 +81,39 @@ public class RunChangeTrackingAction extends AnAction {
         }
     }
 
-    /**
-     * Tracks changes and runs tests, then displays a notification.
-     *
-     * @param project The IntelliJ project.
-     * @param depth   The depth level for method usage search.
-     */
-    private void trackChangesAndNotify(Project project, int depth) {
+    private void trackChangesAndNotify(Project project, @NotNull AnActionEvent e, CountDownLatch latch) {
         final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
-        changeTrackingService.trackChangesAndRunTests(depth);
-        displayNotification(project);
+        ApplicationManager.getApplication().invokeLater(()->{
+            changeTrackingService.runTestsOnCurrentState(latch);
+        });
+
+        //CustomActionUtil.performActionDumbAwareWithCallbacks(e.getActionManager().getAction("com.your.projectroot.RunChangeTrackingAction"),e);
+        //CustomAction.doPerformActionOrShowPopup(project,e);
+
+        ApplicationManager.getApplication().invokeLater(() -> {
+            displayNotification(project);
+        });
     }
 
-    private void checkPreviousCommitTests(Project project) {
-        final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
-        changeTrackingService.runTestsOnHeadFiles();
-        displayNotification(project);
+    private void checkPreviousCommitTests(Project project,boolean checkPrevious,CountDownLatch latch) {
+        if(checkPrevious){
+            final ChangeTrackingService changeTrackingService = project.getService(ChangeTrackingService.class);
+
+            changeTrackingService.runTestsOnHeadFiles(latch);
+            //CustomAction.doPerformActionOrShowPopup(project,e);
+
+            displayNotification(project);
+        }
+        else{
+            latch.countDown();
+        }
     }
 
-    /**
-     * Displays a notification.
-     *
-     * @param project The IntelliJ project.
-     */
+    private void performCustomLogic(Project project) {
+        // Perform custom logic by calling the new CustomActionUtil class
+
+    }
+
     private void displayNotification(Project project) {
         final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
         if (notificationGroup != null) {
@@ -88,13 +128,6 @@ public class RunChangeTrackingAction extends AnAction {
         }
     }
 
-    /**
-     * Shows an error dialog with the specified message and title.
-     *
-     * @param project The IntelliJ project.
-     * @param message The error message.
-     * @param title   The title of the error dialog.
-     */
     private void showErrorDialog(Project project, String message, String title) {
         Messages.showErrorDialog(project, message, title);
     }

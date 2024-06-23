@@ -14,13 +14,15 @@
     <actions>
         <action id="com.your.projectroot.RunChangeTrackingAction"
                 class="com.your.projectroot.RunChangeTrackingAction"
-                text="Run Tests Affected By Changes To Method"
+                text="Run Tests on Changed Files"
                 description="Track changes and run affected tests">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
         </action>
     </actions>
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="CustomNotifications" displayType="BALLOON" />
-    </extensions>
+        <testStatusListener implementation="com.your.projectroot.TestReportListenerBefore"/>
+        <testStatusListener implementation="com.your.projectroot.TestReportListenerAfter"/>
+    </extensions>]
 </idea-plugin>
 
