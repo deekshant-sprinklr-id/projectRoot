@@ -5,4 +5,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "projectRoot"
+rootProject.name = "affectedtestsplugin"

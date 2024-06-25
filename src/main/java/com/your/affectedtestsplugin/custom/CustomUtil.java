@@ -1,8 +1,11 @@
-package com.your.projectroot;
+package com.your.affectedtestsplugin.custom;
 
 import com.github.javaparser.ast.NodeList;
 import com.github.javaparser.ast.body.MethodDeclaration;
 import com.github.javaparser.ast.body.Parameter;
+import com.intellij.notification.*;
+import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.*;
 import com.intellij.psi.util.PsiTreeUtil;
@@ -33,7 +36,6 @@ public class CustomUtil {
             }
         }
         parameterList.append(')');
-        //String parameterList= '('+str.substring(start+1,end)+')';
         return className + "." + method.getName().asString()+parameterList;
     }
 
@@ -204,14 +206,33 @@ public class CustomUtil {
         return absoluteFilePath.substring(projectBasePath.length() + 1);
     }
 
-    public static void sleepForSomeTime(long milliseconds) {
-        try {
-            // Pause the execution for the specified time
-            Thread.sleep(milliseconds);
-        } catch (InterruptedException e) {
-            // Handle the exception if the thread is interrupted
-            System.err.println("Sleep was interrupted");
-            e.printStackTrace();
+    /**
+     * Displays a notification in the IDE.
+     *
+     * @param project the current project
+     */
+    public static void displayNotification(Project project) {
+        final NotificationGroup notificationGroup = NotificationGroupManager.getInstance().getNotificationGroup("CustomNotifications");
+        if (notificationGroup != null) {
+            final Notification notification = notificationGroup.createNotification(
+                    "Change tracking",
+                    "Tracking changes and finding method usages",
+                    NotificationType.INFORMATION
+            );
+            Notifications.Bus.notify(notification, project);
+        } else {
+            System.err.println("Notification group 'CustomNotifications' not found");
         }
+    }
+
+    /**
+     * Shows an error dialog.
+     *
+     * @param project the current project
+     * @param message the error message
+     * @param title   the dialog title
+     */
+    public static void showErrorDialog(Project project, String message, String title) {
+        Messages.showErrorDialog(project, message, title);
     }
 }

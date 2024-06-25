@@ -1,8 +1,8 @@
 <idea-plugin>
-    <id>com.your.projectroot</id>
-    <name>Project Root</name>
+    <id>com.your.affectedtestsplugin</id>
+    <name>Affected Test Runner</name>
     <version>1.0-SNAPSHOT</version>
-    <vendor>Your Company</vendor>
+    <vendor>Deekshant Bansal</vendor>
     <description>
         An IntelliJ plugin to identify and run modified/dependent unit tests based on local changes.
     </description>
@@ -12,8 +12,8 @@
     <depends>JUnit</depends>
 
     <actions>
-        <action id="com.your.projectroot.RunChangeTrackingAction"
-                class="com.your.projectroot.RunChangeTrackingAction"
+        <action id="com.your.affectedtestsplugin.action.RunChangeTrackingAction"
+                class="com.your.affectedtestsplugin.action.RunChangeTrackingAction"
                 text="Run Tests on Changed Files"
                 description="Track changes and run affected tests">
             <add-to-group group-id="ToolsMenu" anchor="last"/>
@@ -21,8 +21,7 @@
     </actions>
     <extensions defaultExtensionNs="com.intellij">
         <notificationGroup id="CustomNotifications" displayType="BALLOON" />
-        <testStatusListener implementation="com.your.projectroot.TestReportListenerBefore"/>
-        <testStatusListener implementation="com.your.projectroot.TestReportListenerAfter"/>
+        <testStatusListener implementation="com.your.affectedtestsplugin.reportListener.TestReportListener"/>
     </extensions>]
 </idea-plugin>
 

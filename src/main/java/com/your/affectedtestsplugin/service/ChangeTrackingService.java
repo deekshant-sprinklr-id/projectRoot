@@ -1,4 +1,4 @@
-package com.your.projectroot;
+package com.your.affectedtestsplugin.service;
 
 import com.github.javaparser.JavaParser;
 import com.github.javaparser.ast.CompilationUnit;
@@ -20,6 +20,9 @@ import com.intellij.psi.search.GlobalSearchScope;
 import com.intellij.psi.search.PsiShortNamesCache;
 import com.intellij.psi.search.searches.ReferencesSearch;
 import com.intellij.psi.util.PsiTreeUtil;
+import com.your.affectedtestsplugin.runner.IntelliJTestRunner;
+import com.your.affectedtestsplugin.custom.PrivateMethodUsageFinder;
+import com.your.affectedtestsplugin.custom.CustomUtil;
 import org.eclipse.jgit.api.Git;
 import org.eclipse.jgit.lib.ObjectId;
 import org.eclipse.jgit.lib.ObjectReader;
@@ -63,12 +66,11 @@ public final class ChangeTrackingService {
     }
 
     /**
-     * Tracks changes in the project files, identifies affected methods, and runs relevant tests.
+     * Tracks changes in the project files and identifies affected methods.
      *
      * @param maxDepth The maximum depth for method usage search.
      */
     public synchronized void trackChangesAndRunTests(int maxDepth) {
-        System.out.println("Beginning: " + maxDepth);//DEBUG
         final ChangeListManager changeListManager = ChangeListManager.getInstance(project);
 
         // Get the list of local changes
@@ -81,15 +83,17 @@ public final class ChangeTrackingService {
                 if (file != null) {
                     identifyChangedMethodsByComparing(file);
                 } else {
-                    System.out.println("File is null");//DEBUG
                     logger.info("File is null");
                 }
             }
         }
-
+        if(CHANGES.isEmpty()){
+            CustomUtil.showErrorDialog(project,"No changes are made to project! Make valid changes","No changes");
+        }
         //DFS Traversal to get Usages
         findMethodUsages(maxDepth);
 
+        //Getting the affected methods
         gettingAffectedTests();
     }
 
@@ -101,7 +105,6 @@ public final class ChangeTrackingService {
      */
     private void identifyChangedMethodsByComparing(VirtualFile file) {
         final String sourceFilePath = file.getPath();
-        System.out.println("Changed Class: " + sourceFilePath);
 
         String className = CustomUtil.getClassNameFromFilePath(sourceFilePath);
 
@@ -112,7 +115,6 @@ public final class ChangeTrackingService {
         if (oldContent != null) {
             compareFileContents(oldContent, newContent, className);
         } else {
-            System.out.println("Old File is null");
             logger.info("Past Commit Content is null");
         }
     }
@@ -307,11 +309,11 @@ public final class ChangeTrackingService {
         for (MethodDeclaration newMethod : newMethods) {
             String methodSignature = CustomUtil.getSignOfMethodDeclaration(newMethod, className);
             if (!oldMethodsMap.containsKey(methodSignature)) {
-                addMethodChange("added", methodSignature);
+                CHANGES.add(methodSignature);
             } else {
                 MethodDeclaration oldMethod = oldMethodsMap.get(methodSignature);
                 if (!oldMethod.getBody().equals(newMethod.getBody())) {
-                    addMethodChange("changed", methodSignature);
+                    CHANGES.add(methodSignature);
                 }
                 oldMethodsMap.remove(methodSignature);
             }
@@ -329,7 +331,6 @@ public final class ChangeTrackingService {
      */
     private void logCompilationUnitStatus(CompilationUnit oldCompilationUnit, CompilationUnit newCompilationUnit) {
         if (oldCompilationUnit == null) {
-            System.out.println("Old Compilation Unit is null");
             logger.info("Getting Old Compilation as null");
         }
         if (newCompilationUnit == null) {
@@ -366,17 +367,6 @@ public final class ChangeTrackingService {
         return methods;
     }
 
-    /**
-     * Adds a method change to the changes list and logs it.
-     *
-     * @param changeType      The type of change (added or changed).
-     * @param methodSignature The signature of the changed method.
-     */
-    private void addMethodChange(String changeType, String methodSignature) {
-        //DEBUG
-        System.out.println("Method " + changeType + ": " + methodSignature);
-        CHANGES.add(methodSignature);
-    }
 
     /**
      * Visitor class for extracting method declarations from a compilation unit.
@@ -399,13 +389,7 @@ public final class ChangeTrackingService {
      * @param maxDepth The maximum depth for method usage search.
      */
     private void findMethodUsages(int maxDepth) {
-        //DEBUG
-        for (String c : CHANGES) {
-            System.out.println(c);
-        }
-
         for (String change : CHANGES) {
-            System.out.println(change + " is Called"); //DEBUG
             findUsagesForMethod(change, maxDepth, 0, new HashSet<>());
         }
     }
@@ -436,14 +420,29 @@ public final class ChangeTrackingService {
         for (PsiMethod method : psiMethods) {
             if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
                 addMethodToRelevantSets(method);
-                Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
-                for (PsiReference reference : references) {
-                    handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
-                }
+                gettingReferences(callingMethod,method,scope,className,maxDepth,currentDepth,currentPath);
             }
         }
 
         currentPath.remove(callingMethod);
+    }
+
+    /**
+     * Getting the Usages of the method in a collection and traversing it.
+     * @param callingMethod The method whose usages are being searched.
+     * @param method        The method whose references are checked
+     * @param scope         The scope of searching
+     * @param className     The name of the class containing the method.
+     * @param maxDepth      The maximum depth for the search.
+     * @param currentDepth  The current depth of the search.
+     * @param currentPath   The current path of visited methods to detect cycles.
+     */
+    private void gettingReferences(String callingMethod,PsiMethod method,GlobalSearchScope scope,
+                                   String className, int maxDepth, int currentDepth, Set<String> currentPath){
+        Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
+        for (PsiReference reference : references) {
+            handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
+        }
     }
 
     /**
@@ -505,50 +504,53 @@ public final class ChangeTrackingService {
         }
     }
 
+    /**
+     * Makes up the set of all affected tests by the changes
+     */
     public void gettingAffectedTests() {
-        System.out.println(AFFECTED_METHODS);
-        System.out.println(PRIVATE_METHODS);
-        System.out.println(PUBLIC_METHOD_TESTS);
-
         Set<PsiMethod> privateUsages = PrivateMethodUsageFinder.findPrivateMethodUsages(project, PRIVATE_METHODS);
-        System.out.println(privateUsages);
-
         ALL_AFFECTED_TESTS.addAll(PUBLIC_METHOD_TESTS);
         ALL_AFFECTED_TESTS.addAll(privateUsages);
     }
 
+    /**
+     * Calls for the running tests for the stashed changes file while checking the test availability
+     * @param latch For keeping track of lock
+     */
     public void runTestsOnHeadCommitFiles(CountDownLatch latch) {
-        System.out.println("ALL_AFFECTED SIZE " + ALL_AFFECTED_TESTS.size());
         if (!ALL_AFFECTED_TESTS.isEmpty()) {
-            System.out.println("Here running test");
             IntelliJTestRunner.runTests(project, ALL_AFFECTED_TESTS,latch);
-            System.out.println("Here running end");
         } else {
-            System.out.println("No affected tests found to run on the HEAD commit files.");
+            CustomUtil.showErrorDialog(project,"No test are affected by the changes","No Test affected");
         }
     }
 
-    public void runTestsOnCurrentState(CountDownLatch latch) {
+    /**
+     * Calls for the running tests for the un-stashed files (with the changes)
+     */
+    public void runTestsOnCurrentState() {
         if (!ALL_AFFECTED_TESTS.isEmpty()) {
             IntelliJTestRunner.runTestsForPrevious(project, ALL_AFFECTED_TESTS);
         } else {
-            System.out.println("No affected tests found to run on the current state.");
+            CustomUtil.showErrorDialog(project,"No test are affected by the changes","No Test affected");
+
         }
     }
 
+    /**
+     * Method used for stashing the changes and
+     * then calling for the running of the affected tests on stashed file
+     * @param latch For keeping track of lock
+     */
     public void runTestsOnHeadFiles(CountDownLatch latch) {
         try (Git git = Git.open(new File(Objects.requireNonNull(project.getBasePath())))) {
+            //Stashing changes
             git.stashCreate().call();
             // Run tests on HEAD commit files
             runTestsOnHeadCommitFiles(latch);
-            // After popping the stash, run the tests on the current state
-
-            System.out.println("Second set of tests completed.");
-
         } catch (Exception e) {
-            logger.error("Error during running tests on HEAD commit files", e);
+            CustomUtil.showErrorDialog(project,"Error in stashed file running","First Run error");
         }
     }
-
 }
 

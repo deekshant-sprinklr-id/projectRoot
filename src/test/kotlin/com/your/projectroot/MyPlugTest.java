@@ -1,4 +1,4 @@
-package com.your.projectroot;
+package com.your.affectedtestsplugin;
 
 
 public class MyPlugTest {

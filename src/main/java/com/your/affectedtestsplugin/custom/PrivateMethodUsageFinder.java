@@ -1,4 +1,4 @@
-package com.your.projectroot;
+package com.your.affectedtestsplugin.custom;
 
 import com.intellij.openapi.project.Project;
 import com.intellij.psi.PsiElement;
