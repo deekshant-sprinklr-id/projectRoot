@@ -131,7 +131,6 @@ public final class ChangeTrackingService {
             return contentRetriever.retrieve(file);
         } catch (IOException | RuntimeException e) {
             String message = e instanceof IOException ? "OLD" : "NEW";
-            System.out.println("Cannot get " + message + " file content");
             logger.info("Cannot get " + message + " file content");
             return ""; //To handle if a completely new file is added Otherwise put null
         }
@@ -189,8 +188,6 @@ public final class ChangeTrackingService {
 
         String relativeFilePath = CustomUtil.getRelativeFilePath(file, projectBasePath);
         File repoDir = new File(projectBasePath);
-
-        System.out.println(repoDir);
 
         try (Git git = Git.open(repoDir)) {
             Repository repository = git.getRepository();
@@ -420,7 +417,7 @@ public final class ChangeTrackingService {
         for (PsiMethod method : psiMethods) {
             if (CustomUtil.isMatchingParameters(method, parameterTypes)) {
                 addMethodToRelevantSets(method);
-                gettingReferences(callingMethod,method,scope,className,maxDepth,currentDepth,currentPath);
+                gettingReferences(method,scope,className,maxDepth,currentDepth,currentPath);
             }
         }
 
@@ -429,7 +426,7 @@ public final class ChangeTrackingService {
 
     /**
      * Getting the Usages of the method in a collection and traversing it.
-     * @param callingMethod The method whose usages are being searched.
+     *
      * @param method        The method whose references are checked
      * @param scope         The scope of searching
      * @param className     The name of the class containing the method.
@@ -437,11 +434,11 @@ public final class ChangeTrackingService {
      * @param currentDepth  The current depth of the search.
      * @param currentPath   The current path of visited methods to detect cycles.
      */
-    private void gettingReferences(String callingMethod,PsiMethod method,GlobalSearchScope scope,
+    private void gettingReferences(PsiMethod method,GlobalSearchScope scope,
                                    String className, int maxDepth, int currentDepth, Set<String> currentPath){
         Collection<PsiReference> references = ReferencesSearch.search(method, scope).findAll();
         for (PsiReference reference : references) {
-            handleMethodReference(callingMethod, reference, className, maxDepth, currentDepth, currentPath);
+            handleMethodReference(reference, className, maxDepth, currentDepth, currentPath);
         }
     }
 
@@ -459,7 +456,6 @@ public final class ChangeTrackingService {
             return true;
         }
         if (currentPath.contains(callingMethod)) {
-            System.out.println("Cycle detected at: " + callingMethod);//DEBUG
             return true;
         }
         return AFFECTED_METHODS.containsKey(callingMethod) && AFFECTED_METHODS.get(callingMethod) <= currentDepth;
@@ -482,23 +478,20 @@ public final class ChangeTrackingService {
     /**
      * Handles a method reference by finding the containing method and recursively finding its usages.
      *
-     * @param callingMethod The method whose usages are being searched.
      * @param reference     The reference to the method.
      * @param className     The name of the class containing the method.
      * @param maxDepth      The maximum depth for the search.
      * @param currentDepth  The current depth of the search.
      * @param currentPath   The current path of visited methods to detect cycles.
      */
-    private void handleMethodReference(String callingMethod, PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
+    private void handleMethodReference(PsiReference reference, String className, int maxDepth, int currentDepth, Set<String> currentPath) {
         PsiElement element = reference.getElement();
         String containingClass = CustomUtil.findDeclaringClassName(element);
-        System.out.println(containingClass+" "+className);
         if (containingClass != null && Objects.equals(containingClass, className)) {
             PsiMethod containingMethod = PsiTreeUtil.getParentOfType(element, PsiMethod.class);
             if (containingMethod != null) {
                 String methodClass = Objects.requireNonNull(containingMethod.getContainingClass()).getName();
                 String methodSignature = CustomUtil.getMethodSignatureForPsiElement(containingMethod, methodClass);
-                System.out.println("Method " + callingMethod + " is used in: " + methodSignature);//DEBUG
                 findUsagesForMethod(methodSignature, maxDepth, currentDepth + 1, currentPath);
             }
         }

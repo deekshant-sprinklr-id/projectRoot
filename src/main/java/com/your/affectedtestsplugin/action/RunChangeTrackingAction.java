@@ -28,7 +28,7 @@ public class RunChangeTrackingAction extends AnAction {
         if (project != null) {
             handleUserInputAndRunTasks(project);
         } else {
-            System.out.println("Inside actionPerformed, project is null");
+            CustomUtil.showErrorDialog(project,"Inside actionPerformed, project is null","Null project");
         }
     }
 

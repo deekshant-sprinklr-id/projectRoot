@@ -36,7 +36,6 @@ public class PrivateMethodUsageFinder {
 
         for (String methodName : privateMethodNames.keySet()) {
             TextOccurenceProcessor processor = (element, offsetInElement) -> {
-
                 if (element.getText().contains(methodName)) {
                     PsiElement parent = element.getParent();
                     if (parent instanceof PsiMethod psiMethod && CustomUtil.isTestMethod(psiMethod)) {
